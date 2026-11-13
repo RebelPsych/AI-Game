@@ -44,13 +44,13 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: Copy APK to test folder
+      - name: Copy APK to the Weight of Warmth folder
         run: |
-          mkdir -p test
-          cp android/app/build/outputs/apk/debug/app-debug.apk test/the-weight-of-warmth.apk
+          mkdir -p "the Weight of Warmth"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "the Weight of Warmth/the-weight-of-warmth.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: the-weight-of-warmth-apk
-          path: test/the-weight-of-warmth.apk
+          path: "the Weight of Warmth/the-weight-of-warmth.apk"

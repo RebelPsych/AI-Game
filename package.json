@@ -10,7 +10,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "android:sync": "npm run build && npx cap sync android",
-    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug && mkdir -p ../test && cp app/build/outputs/apk/debug/app-debug.apk ../test/the-weight-of-warmth.apk"
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug && mkdir -p \"../the Weight of Warmth\" && cp app/build/outputs/apk/debug/app-debug.apk \"../the Weight of Warmth/the-weight-of-warmth.apk\""
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",
