@@ -50,16 +50,16 @@ jobs:
       - name: Copy APK to the Weight of Warmth folder
         run: |
           mkdir -p "the Weight of Warmth"
-          cp android/app/build/outputs/apk/debug/app-debug.apk "the Weight of Warmth/the-weight-of-warmth.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "the Weight of Warmth/test.apk"
 
       - name: Commit APK directly to repository folder
         continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f "the Weight of Warmth/the-weight-of-warmth.apk"
+          git add -f "the Weight of Warmth/test.apk"
           if ! git diff --cached --quiet; then
-            git commit -m "Build playable APK in the Weight of Warmth folder [skip ci]"
+            git commit -m "Build playable APK test.apk in the Weight of Warmth folder [skip ci]"
             git push
           fi
 
@@ -69,15 +69,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest "the Weight of Warmth/the-weight-of-warmth.apk" --clobber
+            gh release upload latest "the Weight of Warmth/test.apk" --clobber
           else
-            gh release create latest "the Weight of Warmth/the-weight-of-warmth.apk" \
+            gh release create latest "the Weight of Warmth/test.apk" \
               --title "The Weight of Warmth (Android APK)" \
-              --notes "Playable Android APK built automatically from the latest commit."
+              --notes "Playable Android APK (test.apk) built automatically from the latest commit."
           fi
 
       - name: Upload APK workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: the-weight-of-warmth-apk
-          path: "the Weight of Warmth/the-weight-of-warmth.apk"
+          name: test-apk
+          path: "the Weight of Warmth/test.apk"
