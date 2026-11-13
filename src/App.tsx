@@ -809,7 +809,7 @@ export default function App() {
             type="button"
             onClick={handleToggleMute}
             aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
-            className="p-2 rounded text-[#9A9892] hover:text-white hover:bg-white/[0.08] cursor-pointer"
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded text-[#9A9892] hover:text-white hover:bg-white/[0.08] cursor-pointer"
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
@@ -817,12 +817,53 @@ export default function App() {
             type="button"
             onClick={() => setScreen('PAUSED')}
             aria-label="Pause session"
-            className="p-2 rounded text-[#9A9892] hover:text-white hover:bg-white/[0.08] cursor-pointer"
+            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded text-[#9A9892] hover:text-white hover:bg-white/[0.08] cursor-pointer"
           >
             <Pause className="w-4 h-4" />
           </button>
         </div>
       </header>
+
+      {/* Mobile Resource Strip for Android Phone Portrait Viewports */}
+      <div className="sm:hidden shrink-0 px-3 py-1.5 border-b border-white/10 bg-[#0A0C12] flex items-center justify-between gap-3 text-[11px] font-mono-tabular overflow-x-auto">
+        {state.tab1Phase === 1 ? (
+          <div className="whitespace-nowrap">
+            <span className="text-[#8E939E] mr-1">Coh:</span>
+            <span className="text-white font-semibold">{formatNumber(state.coherence)} XP</span>
+          </div>
+        ) : (
+          <div className="whitespace-nowrap">
+            <span className="text-[#8E939E] mr-1">Conn:</span>
+            <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
+          </div>
+        )}
+        <div className="whitespace-nowrap">
+          <span className="text-[#8E939E] mr-1">Cyc:</span>
+          <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+        </div>
+        {state.tab2Unlocked && (
+          <>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Rom:</span>
+              <span className="text-[#F5D0A4] font-semibold">
+                {formatNumber(state.romanceInsight)}
+              </span>
+            </div>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Rob:</span>
+              <span className="text-[#38BDF8] font-semibold">
+                {formatNumber(state.roboticsInsight)}
+              </span>
+            </div>
+          </>
+        )}
+        {state.tab3Unlocked && (
+          <div className="whitespace-nowrap">
+            <span className="text-[#8E939E] mr-1">Mat:</span>
+            <span className="text-amber-300 font-semibold">{formatNumber(state.materials)}</span>
+          </div>
+        )}
+      </div>
 
       {/* Active Tab Content */}
       <main className="flex-1 min-h-0 flex flex-col">

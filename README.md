@@ -1,8 +1,8 @@
 # The Weight of Warmth
 
 An atmospheric, slow-burn narrative idle game across three evolving interfaces:
-1. **Tab 1 — The Heart**: Stark monochrome terminal (`SESSION_001`) that transforms into a warm, affectionate companion messenger.
-2. **Tab 2 — The Mind**: Minimal file scraper that evolves into a retro-futuristic dual-channel ingestion network.
+1. **Tab 1 — The Heart**: Stark monochrome terminal (`SESSION_001`) that evolves into a warm, affectionate companion messenger.
+2. **Tab 2 — The Mind**: Minimal directory scraper that evolves into a retro-futuristic dual-channel ingestion network.
 3. **Tab 3 — The Body**: Clinical CAD wireframe & real-world robotics assembly pipeline leading to the **First Light** ending.
 
 ## Development
@@ -12,19 +12,18 @@ npm install
 npm run dev
 ```
 
-## Building the Android APK into `the Weight of Warmth/`
+## Building the Playable Android APK (`test/test.apk`)
 
 This repository is pre-configured with Capacitor Android (`android/`) and an automated GitHub Actions workflow (`.github/workflows/build-apk.yml`).
 
 ### Option 1: GitHub Actions (Automatic)
-Push this repository to GitHub on `main` or `master`, or trigger **Build Android APK** manually from the **Actions** tab. The workflow builds the Vite bundle, syncs Capacitor, compiles the APK with Gradle + Java 21 + Android SDK, outputs `the Weight of Warmth/test.apk`, and attaches it as a downloadable workflow artifact and GitHub Release.
+1. Push this repository to GitHub (`main` or `master`).
+2. Under **Settings → Actions → General → Workflow permissions**, enable **Read and write permissions** so Actions can commit the built APK into `test/test.apk` and publish a GitHub Release.
+3. Once **Build Android APK** finishes in the **Actions** tab, download `test/test.apk` directly from the `test/` folder or from **Releases** and install it on your Android phone.
 
-### Option 2: Local Build (Requires JDK 17/21 + Android SDK)
+### Option 2: Local Build (Requires JDK 21 + Android SDK 36)
 ```bash
 npm install
-npm run build
-npx cap sync android
-cd android && ./gradlew assembleDebug
-mkdir -p "../the Weight of Warmth"
-cp app/build/outputs/apk/debug/app-debug.apk "../the Weight of Warmth/test.apk"
+npm run android:apk
 ```
+This outputs the installable APK at `test/test.apk`.
