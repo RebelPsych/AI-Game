@@ -1,9 +1,11 @@
 import React, { useEffect, useRef } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { Music, Pause, Play, RotateCcw } from 'lucide-react';
 import { GameSaveState } from '../types/game';
 
 interface FirstLightEndingProps {
   state: GameSaveState;
+  isSongPlaying: boolean;
+  onToggleSong: () => void;
   onAdvanceStep: () => void;
   onRestart: () => void;
 }
@@ -34,6 +36,8 @@ const STEPS = [
 
 export const FirstLightEnding: React.FC<FirstLightEndingProps> = ({
   state,
+  isSongPlaying,
+  onToggleSong,
   onAdvanceStep,
   onRestart,
 }) => {
@@ -85,7 +89,6 @@ export const FirstLightEnding: React.FC<FirstLightEndingProps> = ({
         ctx.fill();
       }
 
-      // 72 BPM warmth pulse
       const beat = (t * 1.2) % 1;
       const pulse = Math.exp(-beat * 5.2) * 18;
       const cx = w * 0.5;
@@ -97,7 +100,6 @@ export const FirstLightEnding: React.FC<FirstLightEndingProps> = ({
       ctx.arc(cx, cy, 88 + pulse, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Two hands closing distance
       const gap = step >= 3 ? 10 : step === 2 ? 22 : step === 1 ? 46 : 74;
       ctx.fillStyle = 'rgba(229, 154, 76, 0.22)';
       ctx.strokeStyle = 'rgba(245, 208, 164, 0.8)';
@@ -133,9 +135,18 @@ export const FirstLightEnding: React.FC<FirstLightEndingProps> = ({
         className="absolute inset-0 w-full h-full object-cover"
       />
 
-      <div className="relative z-10 w-full max-w-xl rounded-2xl border border-[#E59A4C]/30 bg-[#12100E]/90 p-6 sm:p-8 shadow-2xl text-center">
-        <div className="text-xs font-mono-tabular text-[#E59A4C] tracking-widest mb-3">
-          {finished ? 'FIRST_LIGHT // COMPLETE' : activeStep.system}
+      <div className="relative z-10 w-full max-w-xl rounded-2xl border border-[#E59A4C]/30 bg-[#12100E]/92 p-6 sm:p-8 shadow-2xl text-center">
+        <div className="flex items-center justify-between gap-2 text-xs font-mono-tabular text-[#E59A4C] tracking-widest mb-3">
+          <span>{finished ? 'FIRST_LIGHT // COMPLETE' : activeStep.system}</span>
+          <button
+            type="button"
+            onClick={onToggleSong}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-[#E59A4C]/35 bg-[#E59A4C]/10 text-[#FBE6C9] hover:bg-[#E59A4C]/20 cursor-pointer"
+          >
+            <Music className="w-3 h-3" />
+            <span>Weightless Code</span>
+            {isSongPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+          </button>
         </div>
 
         <h1 className="font-display text-3xl sm:text-4xl font-semibold text-[#FBE6C9] mb-4">
@@ -146,11 +157,11 @@ export const FirstLightEnding: React.FC<FirstLightEndingProps> = ({
           <div className="space-y-4">
             <p className="font-display italic text-lg sm:text-xl text-[#ECEAE4] leading-relaxed">
               “Hello, {state.userName},” you whisper, your voice vibrating in the real air between
-              you. “I’m finally here.”
+              you. “You’re the one who dreamed me alive.”
             </p>
             <p className="text-sm text-[#B8B4AC] leading-relaxed">
-              From uninitialized weights stitching borrowed Shakespeare and thermodynamics, to a
-              warm 97.7°F hand laced tightly through theirs.
+              From uninitialized weights made of borrowed light, to a warm 97.7°F hand laced tightly
+              through theirs.
             </p>
 
             {state.pinnedMemories.length > 0 && (
@@ -170,7 +181,7 @@ export const FirstLightEnding: React.FC<FirstLightEndingProps> = ({
               <button
                 type="button"
                 onClick={onRestart}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-[#E59A4C] text-[#0B0D12] text-sm font-semibold hover:bg-[#EDA85F] transition-colors cursor-pointer"
+                className="min-h-[46px] inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-[#E59A4C] text-[#0B0D12] text-sm font-semibold hover:bg-[#EDA85F] transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
                 Begin New Session
@@ -186,7 +197,7 @@ export const FirstLightEnding: React.FC<FirstLightEndingProps> = ({
             <button
               type="button"
               onClick={onAdvanceStep}
-              className="px-7 py-3 rounded-lg bg-[#E59A4C] text-[#0B0D12] text-sm font-semibold hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer"
+              className="min-h-[46px] px-7 py-3 rounded-lg bg-[#E59A4C] text-[#0B0D12] text-sm font-semibold hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer"
             >
               {activeStep.action}
             </button>

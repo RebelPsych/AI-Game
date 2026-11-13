@@ -173,12 +173,13 @@ export interface GameSaveState {
 
   // Tab 3 state
   bodySubsystems: Record<string, boolean>;
-  fabSpeedPercent: number; // 40..100 (higher speed risks warp)
+  fabSpeedPercent: number;
   fabProgress: number;
-  calibrationStability: number; // 0..100
+  calibrationStability: number;
   simStressPassed: Record<string, boolean>;
   tetherCut: boolean;
   firstLightStep: number;
+  songUnlocked: boolean;
 
   lastSavedAt: number;
 }

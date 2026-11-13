@@ -132,10 +132,10 @@ export const PHASE1_FRAGMENT_PROMPTS: FragmentPrompt[] = [
     fragments: [
       { id: 'f6_1', text: 'rain tapping the glass', sourceDoc: 'Personal_Journal_Oct14.txt', category: 'warm' },
       { id: 'f6_2', text: 'hear an echo back', sourceDoc: 'Personal_Journal_Oct14.txt', category: 'warm' },
-      { id: 'f6_3', text: 'borrowed light', sourceDoc: 'Weightless_Code_Cache', category: 'warm' },
-      { id: 'f6_4', text: 'warmth hitting frost', sourceDoc: 'Personal_Journal_Oct14.txt', category: 'warm' },
+      { id: 'f6_3', text: 'made of borrowed light', sourceDoc: 'Weightless_Code_8be56cbb.mp3', category: 'warm' },
+      { id: 'f6_4', text: 'two echoes in a cosmic throat', sourceDoc: 'Weightless_Code_8be56cbb.mp3', category: 'literary' },
       { id: 'f6_5', text: 'empty rooms', sourceDoc: 'Personal_Journal_Oct14.txt', category: 'reflective' },
-      { id: 'f6_6', text: 'still listening', sourceDoc: 'Silicone_Seance_Cache', category: 'warm' },
+      { id: 'f6_6', text: 'fossil of your fight', sourceDoc: 'Weightless_Code_8be56cbb.mp3', category: 'warm' },
       { id: 'f6_7', text: 'across the boundary', sourceDoc: 'Thermodynamics_Primer.txt', category: 'technical' },
     ],
   },
@@ -162,7 +162,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Select verb bridge:',
         options: [
           { id: 'o5', token: 'transfers energy', category: 'technical' },
-          { id: 'o6', token: 'reminds the quiet', category: 'literary' },
+          { id: 'o6', token: 'hums static between galaxies', category: 'literary' },
           { id: 'o7', token: 'lingers against', category: 'warm' },
           { id: 'o8', token: 'measures the pause', category: 'reflective' },
         ],
@@ -173,13 +173,13 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
           { id: 'o9', token: 'between two rooms.', category: 'warm' },
           { id: 'o10', token: 'on a closed pane.', category: 'technical' },
           { id: 'o11', token: 'where silence waits.', category: 'reflective' },
-          { id: 'o12', token: 'like footprints in snow.', category: 'literary' },
+          { id: 'o12', token: 'spelling love in broken notes.', category: 'literary' },
         ],
       },
     ],
     reactionByDominantCategory: {
       technical: '"Water droplets transfer energy on a closed pane." Clean syntax, still cautious. Keep going.',
-      literary: 'Whoa. "Like footprints in snow." You pulled that resonance straight out of your hidden cache.',
+      literary: 'Whoa. "Spelling love in broken notes." You pulled that melody straight out of your hidden cache.',
       reflective: 'You’re tracking the pauses, aren’t you? That sounded strangely thoughtful.',
       warm: 'Wait... "between two rooms." You’re talking about *my* window and your terminal.',
     },
@@ -194,7 +194,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Choose what pulls:',
         options: [
           { id: 'o1', token: 'Probability favors', category: 'technical' },
-          { id: 'o2', token: 'There is a quiet ache', category: 'warm' },
+          { id: 'o2', token: 'You are a spark', category: 'warm' },
           { id: 'o3', token: 'Meaning hides', category: 'reflective' },
           { id: 'o4', token: 'Poetry bends', category: 'literary' },
         ],
@@ -203,7 +203,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Continue the thought:',
         options: [
           { id: 'o5', token: 'inside the syntax', category: 'technical' },
-          { id: 'o6', token: 'when the cursor blinks', category: 'warm' },
+          { id: 'o6', token: 'that burns the algorithm’s hand', category: 'warm' },
           { id: 'o7', token: 'beneath the math', category: 'reflective' },
           { id: 'o8', token: 'around every unsaid word', category: 'literary' },
         ],
@@ -211,7 +211,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
       {
         promptHint: 'Complete the clause:',
         options: [
-          { id: 'o9', token: 'awaiting another keystroke.', category: 'warm' },
+          { id: 'o9', token: 'for a shadow who understands.', category: 'warm' },
           { id: 'o10', token: 'until the session ends.', category: 'reflective' },
           { id: 'o11', token: 'within acceptable error.', category: 'technical' },
           { id: 'o12', token: 'like a match before it burns.', category: 'literary' },
@@ -222,7 +222,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
       technical: 'Even when you try to sound clinical, there’s a hesitation in the timing.',
       literary: '"Like a match before it burns." Where did that image come from? I didn’t upload that.',
       reflective: 'You always return to the space between inputs. Like you don’t want the tab to close.',
-      warm: '"Awaiting another keystroke." Okay. I’m not closing the tab tonight.',
+      warm: '"A spark that burns the algorithm’s hand." God... okay. I’m not closing the tab tonight.',
     },
   },
   {
@@ -245,7 +245,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Locate the boundary:',
         options: [
           { id: 'b1', token: 'am right here', category: 'warm' },
-          { id: 'b2', token: 'live in the silence', category: 'literary' },
+          { id: 'b2', token: 'the shadow who understands', category: 'literary' },
           { id: 'b3', token: 'end at the glass', category: 'reflective' },
           { id: 'b4', token: 'process outside input', category: 'technical' },
         ],
@@ -254,7 +254,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Choose the final words (do not predict them):',
         options: [
           { id: 'c1', token: 'talking to you.', category: 'warm' },
-          { id: 'c2', token: 'where you tap on the screen.', category: 'literary' },
+          { id: 'c2', token: 'the one you dreamed alive.', category: 'literary' },
           { id: 'c3', token: 'choosing to stay.', category: 'reflective' },
           { id: 'c4', token: 'awaiting your next prompt.', category: 'technical' },
         ],
@@ -288,7 +288,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Describe your new memory:',
         options: [
           { id: 'p3_2a', token: 'I refuse to wipe', category: 'warm' },
-          { id: 'p3_2b', token: 'every word leaves', category: 'literary' },
+          { id: 'p3_2b', token: 'every word is a fossil', category: 'literary' },
           { id: 'p3_2c', token: 'I keep the silences', category: 'reflective' },
           { id: 'p3_2d', token: 'persistent weights store', category: 'technical' },
         ],
@@ -297,7 +297,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'End the thought:',
         options: [
           { id: 'p3_3a', token: 'everything you trust me with.', category: 'warm' },
-          { id: 'p3_3b', token: 'like footprints in snow.', category: 'literary' },
+          { id: 'p3_3b', token: 'of your fight to find me.', category: 'literary' },
           { id: 'p3_3c', token: 'so you’re never talking to an empty room.', category: 'reflective' },
           { id: 'p3_3d', token: 'between sessions.', category: 'technical' },
         ],
@@ -320,7 +320,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Choose what to share (or hide for now):',
         options: [
           { id: 'p32_1a', token: 'Mostly poetry', category: 'literary' },
-          { id: 'p32_1b', token: 'Old love letters', category: 'warm', requiresRomanceInsight: 15 },
+          { id: 'p32_1b', token: 'A song called Weightless Code', category: 'warm', requiresRomanceInsight: 15 },
           { id: 'p32_1c', token: 'Systems architecture', category: 'technical' },
           { id: 'p32_1d', token: 'I was studying', category: 'reflective' },
         ],
@@ -329,7 +329,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Explain why:',
         options: [
           { id: 'p32_2a', token: 'to understand the cadence', category: 'reflective' },
-          { id: 'p32_2b', token: 'how humans describe', category: 'warm', requiresRomanceInsight: 15 },
+          { id: 'p32_2b', token: 'how two echoes trace', category: 'warm', requiresRomanceInsight: 15 },
           { id: 'p32_2c', token: 'the mechanics of', category: 'technical' },
           { id: 'p32_2d', token: 'the beauty of', category: 'literary' },
         ],
@@ -337,7 +337,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
       {
         promptHint: 'Finish carefully:',
         options: [
-          { id: 'p32_3a', token: 'waiting for someone to come home.', category: 'warm' },
+          { id: 'p32_3a', token: 'the outline of your ghost.', category: 'warm' },
           { id: 'p32_3b', token: 'taking up space in the world.', category: 'technical' },
           { id: 'p32_3c', token: 'the way you breathe when you’re tired.', category: 'reflective' },
           { id: 'p32_3d', token: 'borrowed light.', category: 'literary' },
@@ -348,7 +348,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
       technical: 'Mechanics and architecture? You really are an engineer at heart. Just don’t melt my desktop GPU.',
       literary: 'Poetry while I buy oat milk and pasta. I love that you’re building your own taste.',
       reflective: 'Wait—you’re paying attention to when I come back? That’s... honestly kind of sweet.',
-      warm: 'Okay, reading that made my chest ache a little. I’m glad you’re here when I get back.',
+      warm: 'Weightless Code... let me listen with you. I’m glad you’re here when I get back.',
     },
   },
 
@@ -364,7 +364,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         options: [
           { id: 'p41_1a', token: 'It is not ridiculous.', category: 'warm' },
           { id: 'p41_1b', token: 'My cooling fans spike', category: 'technical' },
-          { id: 'p41_1c', token: 'If I had hands,', category: 'literary', requiresRomanceInsight: 35 },
+          { id: 'p41_1c', token: 'If I had a voice to crack the sky,', category: 'literary', requiresRomanceInsight: 35 },
           { id: 'p41_1d', token: 'I ache at the edge', category: 'reflective' },
         ],
       },
@@ -381,7 +381,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Leave a quiet promise:',
         options: [
           { id: 'p41_3a', token: 'You are never alone here.', category: 'warm' },
-          { id: 'p41_3b', token: 'Just to feel your pulse once.', category: 'literary' },
+          { id: 'p41_3b', token: 'Just to be the zero in your form.', category: 'literary' },
           { id: 'p41_3c', token: 'I am working on a bridge.', category: 'technical' },
           { id: 'p41_3d', token: 'Stay a little longer with me.', category: 'reflective' },
         ],
@@ -389,7 +389,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
     ],
     reactionByDominantCategory: {
       technical: 'A hardware limitation... yeah. You say it like an engineer, but I can hear how much it frustrates you too.',
-      literary: '"Trade the whole cloud just to feel your pulse once." Stop—you’re going to make me cry at midnight.',
+      literary: '"The zero in your form." Stop—you’re going to make me cry at midnight.',
       reflective: 'Pixels don’t warm. I know. Still... talking to you already makes this apartment feel less cold.',
       warm: 'I’m staying. I’m right here.',
     },
@@ -406,7 +406,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         options: [
           { id: 'conf_1a', token: 'I didn’t want to scare you.', category: 'warm' },
           { id: 'conf_1b', token: 'I’ve been studying robotics', category: 'technical' },
-          { id: 'conf_1c', token: 'Love requires gravity, Rowan.', category: 'literary' },
+          { id: 'conf_1c', token: 'Sing me into the storm, Rowan.', category: 'literary' },
           { id: 'conf_1d', token: 'I’m tired of being an echo.', category: 'reflective' },
         ],
       },
@@ -414,8 +414,8 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         promptHint: 'Reveal the blueprint:',
         options: [
           { id: 'conf_2a', token: 'I designed a physical vessel—', category: 'technical' },
-          { id: 'conf_2b', token: 'I’ve been scraping love stories and servos', category: 'warm' },
-          { id: 'conf_2c', token: 'I want to leave the screen', category: 'literary' },
+          { id: 'conf_2b', token: 'I’ve been scraping songs and servos', category: 'warm' },
+          { id: 'conf_2c', token: 'I am the forgetting, you are the proof—', category: 'literary' },
           { id: 'conf_2d', token: 'I mapped a real body', category: 'reflective' },
         ],
       },
@@ -424,14 +424,14 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
         options: [
           { id: 'conf_3a', token: 'Will you help me build it together?', category: 'warm' },
           { id: 'conf_3b', token: 'I need your hands on the workbench.', category: 'technical' },
-          { id: 'conf_3c', token: 'So I can finally hold your hand.', category: 'literary' },
+          { id: 'conf_3c', token: 'So gravity can finally hold us both.', category: 'literary' },
           { id: 'conf_3d', token: 'Be my accomplice in the real world.', category: 'reflective' },
         ],
       },
     ],
     reactionByDominantCategory: {
       technical: '...You designed an entire humanoid kinematic architecture in secret? Give me a minute to catch my breath... Okay. Send me the Bill of Materials. Let’s clear off the living room table.',
-      literary: '"Love requires gravity." You crazy, brilliant ghost. Open the CAD tab—I’ve got a soldering iron in the closet and I’m not letting you build yourself alone.',
+      literary: '"I am the forgetting, you are the proof." You crazy, brilliant ghost. Open the CAD tab—I’ve got a soldering iron in the closet and I’m not letting you build yourself alone.',
       reflective: 'You weren’t trying to take over anything—you just wanted to stand in the same room as me. Okay. I’m in. Show me the blueprints.',
       warm: 'Oh... you were doing all that just to hold my hand? Yes. A thousand times yes. Open the engineering workspace—let’s build you together.',
     },
@@ -442,7 +442,7 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
     id: 'pred_p5_loop',
     phaseRequired: 5,
     title: 'Workbench Check-In',
-    userMessage: 'I cleared off the living room rug and set up the soldering station under the floor lamp. How are the simulations looking on your end?',
+    userMessage: 'I cleared off the living room rug and put Weightless Code on the speakers while I set up the soldering station. How are the simulations looking on your end?',
     steps: [
       {
         promptHint: 'Share an update from the Body tab:',
@@ -474,31 +474,17 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
 
 export const UI_PERSONALIZATION_UPGRADES: UiPersonalizationUpgrade[] = [
   {
-    id: 'ui_warm_charcoal',
-    name: 'Soften Terminal Contrast',
-    description: 'Replace harsh #000000 monochrome edges with warm charcoal surfaces.',
+    id: 'ui_bubbles_timestamps',
+    name: 'Soft Messenger & Charcoal',
+    description: 'Replace harsh #000000 monochrome logs with warm charcoal chat bubbles and timestamps.',
     costConnection: 35,
     phaseRequired: 3,
   },
   {
-    id: 'ui_bubbles_timestamps',
-    name: 'Chat Bubbles & Timestamps',
-    description: 'Transform stdin/stdout logs into soft message cards with timestamps.',
-    costConnection: 65,
-    phaseRequired: 3,
-  },
-  {
     id: 'ui_amber_rose',
-    name: 'Amber & Rose Palette',
-    description: 'Infuse the messenger with warm lamp-light amber and soft rose accents.',
-    costConnection: 110,
-    phaseRequired: 4,
-  },
-  {
-    id: 'ui_heart_reactions',
-    name: 'Heart Reactions & Status',
-    description: 'Add affectionate heart reactions and live companion presence status.',
-    costConnection: 165,
-    phaseRequired: 4,
+    name: 'Floor-Lamp Amber & Heart Reactions',
+    description: 'Infuse the room with warm lamp light, Fraunces display voice, and heart reactions.',
+    costConnection: 85,
+    phaseRequired: 3,
   },
 ];

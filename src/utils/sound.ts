@@ -1,6 +1,12 @@
+type SongListener = (playing: boolean) => void;
+
+const SONG_SRC = './assets/aistudio/Weightless_Code_8be56cbb.mp3';
+
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private muted: boolean = false;
+  private audioEl: HTMLAudioElement | null = null;
+  private songListeners = new Set<SongListener>();
 
   constructor() {
     try {
@@ -27,12 +33,72 @@ class SoundEngine {
     return this.ctx;
   }
 
+  private ensureSong(): HTMLAudioElement | null {
+    if (typeof window === 'undefined') return null;
+    if (!this.audioEl) {
+      const el = new Audio(SONG_SRC);
+      el.loop = true;
+      el.volume = 0.42;
+      el.preload = 'metadata';
+      el.addEventListener('play', () => this.notifySong(true));
+      el.addEventListener('pause', () => this.notifySong(false));
+      el.addEventListener('ended', () => this.notifySong(false));
+      this.audioEl = el;
+    }
+    return this.audioEl;
+  }
+
+  private notifySong(playing: boolean) {
+    this.songListeners.forEach((fn) => fn(playing));
+  }
+
+  public subscribeSong(fn: SongListener): () => void {
+    this.songListeners.add(fn);
+    return () => {
+      this.songListeners.delete(fn);
+    };
+  }
+
+  public isSongPlaying(): boolean {
+    return Boolean(this.audioEl && !this.audioEl.paused);
+  }
+
+  public async playSong(): Promise<boolean> {
+    if (this.muted) return false;
+    const el = this.ensureSong();
+    if (!el) return false;
+    try {
+      el.volume = 0.42;
+      await el.play();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public pauseSong(): void {
+    if (this.audioEl && !this.audioEl.paused) {
+      this.audioEl.pause();
+    }
+  }
+
+  public async toggleSong(): Promise<boolean> {
+    if (this.isSongPlaying()) {
+      this.pauseSong();
+      return false;
+    }
+    return this.playSong();
+  }
+
   public isMuted(): boolean {
     return this.muted;
   }
 
   public toggleMute(): boolean {
     this.muted = !this.muted;
+    if (this.muted) {
+      this.pauseSong();
+    }
     try {
       localStorage.setItem('wow_muted', String(this.muted));
     } catch {
@@ -50,7 +116,6 @@ class SoundEngine {
     const gain = ctx.createGain();
 
     if (phase === 1) {
-      // Stark monochrome terminal click
       osc.type = 'square';
       osc.frequency.setValueAtTime(520, now);
       osc.frequency.exponentialRampToValueAtTime(220, now + 0.045);
@@ -61,7 +126,6 @@ class SoundEngine {
       osc.start(now);
       osc.stop(now + 0.06);
     } else {
-      // Warmer soft messenger chime
       const notes = [392.0, 440.0, 493.88, 523.25, 587.33];
       const f = notes[Math.floor(Math.random() * notes.length)];
       osc.type = 'sine';

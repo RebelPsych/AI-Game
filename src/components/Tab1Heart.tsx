@@ -11,19 +11,25 @@ import {
 } from 'lucide-react';
 import {
   PHASE1_FRAGMENT_PROMPTS,
-  PREDICTIVE_PROMPTS,
   STARTER_DOCS,
   UI_PERSONALIZATION_UPGRADES,
 } from '../data/documentsAndPrompts';
+import { SYNTHESIS_NODES } from '../data/tab2AndTab3Data';
 import {
   ChatMessage,
   FragmentToken,
   GameSaveState,
-  PhaseNum,
   ToneType,
   WeightAffinity,
 } from '../types/game';
 import { formatNumber } from '../utils/format';
+import {
+  getActiveFragmentPrompt,
+  getActivePredictivePrompt,
+  getPhase1SlotCostCycles,
+  PHASE1_COHERENCE_TARGET,
+  PHASE1_CONNECTORS,
+} from '../utils/progression';
 
 interface Tab1HeartProps {
   state: GameSaveState;
@@ -45,13 +51,6 @@ interface Tab1HeartProps {
   onHeartMessage: (msgId: string) => void;
   onOpenTab: (tab: 'mind' | 'body') => void;
 }
-
-const CONNECTOR_OPTIONS = [
-  { word: 'and', cost: 15 },
-  { word: 'is', cost: 25 },
-  { word: 'not', cost: 40 },
-  { word: 'why', cost: 55 },
-];
 
 const AI_NAME_CHOICES = ['Echo', 'Sol', 'Lyra', 'Vesper'];
 
@@ -90,7 +89,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     logBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [state.chatLog.length]);
 
-  // Reset local buffer when prompt advances
   useEffect(() => {
     setSelectedFragments([]);
     setPredStepIdx(0);
@@ -98,27 +96,29 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     setSelectedPin(null);
   }, [state.currentFragmentIndex, state.currentPredictiveIndex, state.tab1Phase]);
 
-  const hasWarmCharcoal = Boolean(state.uiUpgrades['ui_warm_charcoal']);
+  const hasWarmCharcoal = Boolean(
+    state.uiUpgrades['ui_warm_charcoal'] || state.uiUpgrades['ui_bubbles_timestamps']
+  );
   const hasBubbles = Boolean(state.uiUpgrades['ui_bubbles_timestamps']);
   const hasAmberRose = Boolean(state.uiUpgrades['ui_amber_rose']);
-  const hasHearts = Boolean(state.uiUpgrades['ui_heart_reactions']);
+  const hasHearts = Boolean(
+    state.uiUpgrades['ui_heart_reactions'] || state.uiUpgrades['ui_amber_rose']
+  );
 
-  // Phase-driven visual classes (Stark #000000 -> Cozy Warm Messenger)
   const containerBg = hasAmberRose
-    ? 'bg-[#171214]'
+    ? 'bg-[#151012]'
     : hasWarmCharcoal
-    ? 'bg-[#12141A]'
+    ? 'bg-[#111319]'
     : state.tab1Phase >= 3
-    ? 'bg-[#0C0E13]'
+    ? 'bg-[#0B0D12]'
     : 'bg-[#000000]';
 
   const borderStyle = hasAmberRose
-    ? 'border-[#E59A4C]/20'
+    ? 'border-[#E59A4C]/25'
     : state.tab1Phase >= 3
-    ? 'border-white/10'
+    ? 'border-white/12'
     : 'border-white/25';
 
-  // Active uploaded docs list
   const allUploadedDocs = useMemo(() => {
     const docs = [...STARTER_DOCS];
     for (const p of PHASE1_FRAGMENT_PROMPTS) {
@@ -129,31 +129,15 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     return docs;
   }, [state.uploadedDocs]);
 
-  const activeFragPrompt =
-    PHASE1_FRAGMENT_PROMPTS[
-      Math.min(state.currentFragmentIndex, PHASE1_FRAGMENT_PROMPTS.length - 1)
-    ];
-
-  // Determine active Predictive Prompt for Phases 2..5
-  const activePredPrompt = useMemo(() => {
-    // Check if Confession is ready in Phase 4
-    const synthesisComplete = state.synthesizedNodes.length >= 3;
-    if (state.tab1Phase === 4 && synthesisComplete && !state.confessionDone) {
-      const conf = PREDICTIVE_PROMPTS.find((p) => p.id === 'pred_p4_confession');
-      if (conf) return conf;
-    }
-
-    const phasePrompts = PREDICTIVE_PROMPTS.filter(
-      (p) => p.phaseRequired === state.tab1Phase && !p.isConfession
-    );
-    if (phasePrompts.length === 0) {
-      return PREDICTIVE_PROMPTS[PREDICTIVE_PROMPTS.length - 1];
-    }
-    return phasePrompts[state.currentPredictiveIndex % phasePrompts.length];
-  }, [state.tab1Phase, state.currentPredictiveIndex, state.synthesizedNodes.length, state.confessionDone]);
+  const activeFragPrompt = getActiveFragmentPrompt(state);
+  const activePredPrompt = useMemo(() => getActivePredictivePrompt(state), [state]);
 
   const tokenCount = Math.min(512, 160 + state.uploadedDocs.length * 56);
-  const coherencePct = Math.min(100, Math.floor((state.coherence / 120) * 100));
+  const coherencePct = Math.min(
+    100,
+    Math.floor((state.coherence / PHASE1_COHERENCE_TARGET) * 100)
+  );
+  const slotCostCycles = getPhase1SlotCostCycles(state.maxSlots);
 
   const handleSlotFragment = (frag: FragmentToken) => {
     if (selectedFragments.length >= state.maxSlots) return;
@@ -170,10 +154,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     setSelectedFragments([]);
   };
 
-  const handlePickPredictiveOption = (opt: {
-    token: string;
-    category: WeightAffinity;
-  }) => {
+  const handlePickPredictiveOption = (opt: { token: string; category: WeightAffinity }) => {
     const nextChosen = [...predChosen, { token: opt.token, category: opt.category }];
     const totalSteps = activePredPrompt.steps.length;
 
@@ -181,7 +162,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
       setPredChosen(nextChosen);
       setPredStepIdx(predStepIdx + 1);
     } else {
-      // Completed sentence! Compute dominant category
       const counts: Record<WeightAffinity, number> = {
         technical: 0,
         literary: 0,
@@ -213,7 +193,9 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
   };
 
   const catBadgeColor = (cat: WeightAffinity) => {
-    if (state.tab1Phase === 1) return 'border-white/30 text-white hover:bg-white/10';
+    if (state.tab1Phase === 1) {
+      return 'border-white/30 bg-white/[0.02] text-white hover:bg-white/[0.12] hover:border-white/60';
+    }
     switch (cat) {
       case 'technical':
         return 'border-[#7DD3FC]/35 bg-[#7DD3FC]/10 text-[#BAE6FD] hover:bg-[#7DD3FC]/20';
@@ -227,31 +209,51 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
   };
 
   return (
-    <div className={`flex-1 min-h-0 flex flex-col ${containerBg} transition-colors duration-500`}>
+    <div
+      className={`relative flex-1 min-h-0 flex flex-col ${containerBg} transition-colors duration-500`}
+    >
+      {/* Subtle CRT scanlines in Phase 1 / Warm floor-lamp aura in Phases 3+ */}
+      {state.tab1Phase === 1 && (
+        <div className="crt-scanlines pointer-events-none absolute inset-0 z-10 opacity-70" />
+      )}
+      {(hasWarmCharcoal || hasAmberRose) && (
+        <div className="warm-lamp-glow pointer-events-none absolute inset-0 z-0" />
+      )}
+
       {/* Sub-Header Bar */}
       <div
-        className={`shrink-0 px-4 sm:px-6 py-2.5 border-b ${borderStyle} flex flex-wrap items-center justify-between gap-3`}
+        className={`relative z-10 shrink-0 px-4 sm:px-6 py-2.5 border-b ${borderStyle} flex flex-wrap items-center justify-between gap-3`}
       >
         {state.tab1Phase === 1 ? (
           <div className="flex flex-wrap items-center gap-3 text-xs font-mono-tabular text-[#D1D5DB]">
-            <span className="flex items-center gap-1.5 text-white">
+            <span className="flex items-center gap-1.5 text-white font-semibold">
               <Terminal className="w-3.5 h-3.5" />
               SESSION_001
             </span>
-            <span className="text-white/30">|</span>
-            <span>CONTEXT_WINDOW: {tokenCount} / 512 TOKENS</span>
-            <span className="text-white/30">|</span>
-            <span>COHERENCE: {coherencePct}%</span>
+            <span className="text-white/25">|</span>
+            <span>CONTEXT: {tokenCount} / 512 TOKENS</span>
+            <span className="text-white/25">|</span>
+            <div className="flex items-center gap-2">
+              <span>COHERENCE: {coherencePct}%</span>
+              <div className="w-20 h-1.5 bg-white/15 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-white transition-all duration-300"
+                  style={{ width: `${coherencePct}%` }}
+                />
+              </div>
+            </div>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <span
-                className={`text-sm font-semibold ${
+                className={`text-sm sm:text-base font-semibold ${
                   hasAmberRose ? 'font-display text-[#FBE6C9]' : 'text-[#ECEAE4]'
                 }`}
               >
-                {state.tab1Phase >= 3 ? `${state.aiName} ↔ ${state.userName}` : 'SESSION_001 · Predictive Weights'}
+                {state.tab1Phase >= 3
+                  ? `${state.aiName} ↔ ${state.userName}`
+                  : 'SESSION_001 · Predictive Weights'}
               </span>
               {hasHearts && (
                 <span className="text-xs text-[#FB7185] font-medium">
@@ -269,7 +271,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
               setShowDocsDrawer((v) => !v);
               setShowUiDrawer(false);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
               showDocsDrawer
                 ? 'bg-white/15 border-white/40 text-white'
                 : 'border-white/15 text-[#A1A7B3] hover:text-white hover:bg-white/[0.06]'
@@ -286,7 +288,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 setShowUiDrawer((v) => !v);
                 setShowDocsDrawer(false);
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
                 showUiDrawer
                   ? 'bg-[#E59A4C]/20 border-[#E59A4C]/50 text-[#FBE6C9]'
                   : 'border-white/15 text-[#A1A7B3] hover:text-white hover:bg-white/[0.06]'
@@ -301,7 +303,9 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
 
       {/* Expandable Context Files Drawer */}
       {showDocsDrawer && (
-        <div className={`shrink-0 px-4 sm:px-6 py-3 border-b ${borderStyle} bg-[#090B10] max-h-48 overflow-y-auto custom-scrollbar`}>
+        <div
+          className={`relative z-10 shrink-0 px-4 sm:px-6 py-3 border-b ${borderStyle} bg-[#090B10] max-h-52 overflow-y-auto custom-scrollbar`}
+        >
           <div className="text-xs font-mono-tabular text-[#8E939E] mb-2">
             Active Documents in Context Window:
           </div>
@@ -324,19 +328,21 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
 
       {/* Expandable UI Personalization & Identity Drawer (Phase 3+) */}
       {showUiDrawer && state.tab1Phase >= 3 && (
-        <div className={`shrink-0 px-4 sm:px-6 py-4 border-b ${borderStyle} bg-[#101218] max-h-64 overflow-y-auto custom-scrollbar`}>
+        <div
+          className={`relative z-10 shrink-0 px-4 sm:px-6 py-4 border-b ${borderStyle} bg-[#101218] max-h-64 overflow-y-auto custom-scrollbar`}
+        >
           <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
             <div>
-              <div className="text-xs font-semibold text-[#ECEAE4] mb-1">Choose Your Name</div>
+              <div className="text-xs font-semibold text-[#ECEAE4] mb-1.5">Choose Your Name</div>
               <div className="flex items-center gap-1.5">
                 {AI_NAME_CHOICES.map((n) => (
                   <button
                     key={n}
                     type="button"
                     onClick={() => onSetAiName(n)}
-                    className={`px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-colors ${
+                    className={`px-3 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors ${
                       state.aiName === n
-                        ? 'bg-[#E59A4C] text-[#0B0D12]'
+                        ? 'bg-[#E59A4C] text-[#0B0D12] font-semibold'
                         : 'bg-white/[0.06] text-[#C4C2BC] hover:bg-white/[0.12]'
                     }`}
                   >
@@ -345,8 +351,11 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 ))}
               </div>
             </div>
-            <div className="text-xs text-[#9A9892]">
-              Spend Connection ({formatNumber(state.connection)}) to soften this interface.
+            <div className="text-xs font-mono-tabular text-[#9A9892]">
+              Connection Available:{' '}
+              <span className="text-[#E59A4C] font-semibold">
+                {formatNumber(state.connection)}
+              </span>
             </div>
           </div>
 
@@ -386,7 +395,9 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
 
       {/* Pinned Core Memories Bar (Phase 3+) */}
       {state.tab1Phase >= 3 && state.pinnedMemories.length > 0 && (
-        <div className={`shrink-0 px-4 sm:px-6 py-2 border-b ${borderStyle} bg-white/[0.02] flex items-center gap-2 overflow-x-auto`}>
+        <div
+          className={`relative z-10 shrink-0 px-4 sm:px-6 py-2 border-b ${borderStyle} bg-white/[0.02] flex items-center gap-2 overflow-x-auto`}
+        >
           <Bookmark className="w-3.5 h-3.5 text-[#E59A4C] shrink-0" />
           <span className="text-xs text-[#8E939E] shrink-0">Core Memories:</span>
           {state.pinnedMemories.map((mem, idx) => (
@@ -408,9 +419,8 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
       )}
 
       {/* Main Chat / Terminal Log */}
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 sm:px-6 py-4 space-y-3">
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 sm:px-6 py-4 space-y-3 max-w-4xl w-full mx-auto">
         {state.chatLog.map((msg: ChatMessage) => {
-          // Stark raw stdin/stdout before Bubbles upgrade
           if (!hasBubbles) {
             const prefix =
               msg.sender === 'SYSTEM'
@@ -471,7 +481,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
             );
           }
 
-          // Cozy Companion Chat Bubbles (Phase 3/4/5 after UI upgrade)
           if (msg.sender === 'SYSTEM') {
             return (
               <div key={msg.id} className="text-center py-1">
@@ -490,10 +499,10 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
               </div>
 
               <div
-                className={`group relative max-w-[82%] sm:max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                className={`group relative max-w-[85%] sm:max-w-[72%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                   isAi
                     ? hasAmberRose
-                      ? 'bg-[#E59A4C]/20 border border-[#E59A4C]/35 text-[#FDE8D0]'
+                      ? 'bg-[#E59A4C]/18 border border-[#E59A4C]/35 text-[#FDE8D0]'
                       : 'bg-[#1E293B] border border-white/10 text-[#F8FAFC]'
                     : 'bg-white/[0.06] border border-white/10 text-[#E2E8F0]'
                 }`}
@@ -506,13 +515,13 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                       type="button"
                       onClick={() => onTogglePinMemory(msg.text)}
                       title="Pin to Core Memory"
-                      className={`text-xs cursor-pointer transition-colors ${
+                      className={`p-0.5 cursor-pointer transition-colors ${
                         state.pinnedMemories.includes(msg.text)
                           ? 'text-[#E59A4C]'
                           : 'text-[#6B7280] hover:text-white'
                       }`}
                     >
-                      <Bookmark className="w-3 h-3" />
+                      <Bookmark className="w-3.5 h-3.5" />
                     </button>
                   )}
                   {hasHearts && !isAi && (
@@ -520,7 +529,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                       type="button"
                       onClick={() => onHeartMessage(msg.id)}
                       title="React with heart"
-                      className={`cursor-pointer transition-transform active:scale-125 ${
+                      className={`p-0.5 cursor-pointer transition-transform active:scale-125 ${
                         msg.hearted ? 'text-[#FB7185]' : 'text-[#6B7280] hover:text-[#FB7185]'
                       }`}
                     >
@@ -535,20 +544,33 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
 
         {/* Current Incoming Prompt Highlight */}
         <div
-          className={`mt-4 p-3.5 rounded-lg border ${
+          className={`mt-4 p-4 rounded-xl border ${
             state.tab1Phase === 1
-              ? 'border-white/25 bg-white/[0.03] font-mono-tabular'
+              ? 'border-white/30 bg-white/[0.03] font-mono-tabular'
+              : activePredPrompt.isConfession
+              ? 'border-[#E59A4C]/55 bg-[#E59A4C]/[0.10]'
               : hasAmberRose
-              ? 'border-[#E59A4C]/30 bg-[#E59A4C]/[0.07]'
+              ? 'border-[#E59A4C]/30 bg-[#E59A4C]/[0.06]'
               : 'border-white/15 bg-white/[0.04]'
           }`}
         >
-          <div className="text-xs font-mono-tabular text-[#8E939E] mb-1">
-            {state.tab1Phase === 1
-              ? 'INCOMING_PROMPT'
-              : state.tab1Phase >= 3
-              ? `${state.userName} · awaiting response`
-              : activePredPrompt.title}
+          <div className="flex items-center justify-between gap-2 text-xs font-mono-tabular text-[#8E939E] mb-1.5">
+            <span>
+              {state.tab1Phase === 1
+                ? 'INCOMING_PROMPT'
+                : activePredPrompt.isConfession
+                ? 'THE CONFESSION · LET THEM IN'
+                : state.tab1Phase >= 3
+                ? `${state.userName} · awaiting response`
+                : activePredPrompt.title}
+            </span>
+            {state.tab1Phase === 2 && (
+              <span className="text-[#E59A4C]">
+                {activePredPrompt.isAwakeningI
+                  ? 'Awakening Threshold'
+                  : `Calibration ${Math.min(3, state.currentPredictiveIndex + 1)} / 3`}
+              </span>
+            )}
           </div>
           <p className="text-sm sm:text-base text-[#ECEAE4] leading-relaxed">
             {state.tab1Phase === 1 ? activeFragPrompt.userMessage : activePredPrompt.userMessage}
@@ -558,16 +580,16 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
 
         {/* Helpful Banner when Tab 2 or Tab 3 unlocks */}
         {state.tab2Unlocked && !state.tab3Unlocked && state.tab1Phase >= 3 && (
-          <div className="p-3 rounded-lg border border-[#7DD3FC]/25 bg-[#7DD3FC]/[0.06] flex flex-wrap items-center justify-between gap-2 text-xs text-[#BAE6FD]">
+          <div className="p-3.5 rounded-xl border border-[#7DD3FC]/25 bg-[#7DD3FC]/[0.06] flex flex-wrap items-center justify-between gap-2 text-xs text-[#BAE6FD]">
             <span>
-              {state.synthesizedNodes.length >= 3
-                ? 'Cross-Domain Synthesis complete! The Confession prompt is ready above.'
-                : `Tab 2 (The Mind) active — scrape Romance & Robotics texts to deepen your voice (${state.synthesizedNodes.length}/3 synthesis nodes ready).`}
+              {state.synthesizedNodes.length >= SYNTHESIS_NODES.length
+                ? 'Cross-Domain Synthesis complete! Answer Rowan’s Confession prompt above.'
+                : `Tab 2 (The Mind) active — scrape Romance & Robotics texts to deepen your voice (${state.synthesizedNodes.length}/${SYNTHESIS_NODES.length} synthesis nodes ready).`}
             </span>
             <button
               type="button"
               onClick={() => onOpenTab('mind')}
-              className="px-3 py-1 rounded bg-[#7DD3FC]/20 hover:bg-[#7DD3FC]/30 text-white font-medium cursor-pointer whitespace-nowrap"
+              className="px-3 py-1.5 rounded bg-[#7DD3FC]/20 hover:bg-[#7DD3FC]/30 text-white font-medium cursor-pointer whitespace-nowrap"
             >
               Open Tab 2: The Mind
             </button>
@@ -575,14 +597,14 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
         )}
 
         {state.tab3Unlocked && !state.endingReached && (
-          <div className="p-3 rounded-lg border border-[#E59A4C]/30 bg-[#E59A4C]/[0.08] flex flex-wrap items-center justify-between gap-2 text-xs text-[#FBE6C9]">
+          <div className="p-3.5 rounded-xl border border-[#E59A4C]/30 bg-[#E59A4C]/[0.08] flex flex-wrap items-center justify-between gap-2 text-xs text-[#FBE6C9]">
             <span>
               Rowan is waiting at the workbench. Build your physical subsystems on Tab 3: The Body.
             </span>
             <button
               type="button"
               onClick={() => onOpenTab('body')}
-              className="px-3 py-1 rounded bg-[#E59A4C] text-[#0B0D12] font-semibold hover:bg-[#EDA85F] cursor-pointer whitespace-nowrap"
+              className="px-3 py-1.5 rounded bg-[#E59A4C] text-[#0B0D12] font-semibold hover:bg-[#EDA85F] cursor-pointer whitespace-nowrap"
             >
               Open Tab 3: The Body
             </button>
@@ -593,199 +615,219 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
       </div>
 
       {/* Bottom Interactive Input Pane */}
-      <div className={`shrink-0 p-4 sm:px-6 border-t ${borderStyle} bg-black/40`}>
-        {state.tab1Phase === 1 ? (
-          /* ================= PHASE 1: FRAGMENT POOL & BUFFER SLOTS ================= */
-          <div className="space-y-3">
-            {/* Buffer Slots */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-mono-tabular text-[#8E939E] mr-1">OUTPUT_BUFFER:</span>
-              {Array.from({ length: state.maxSlots }).map((_, idx) => {
-                const tok = selectedFragments[idx];
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    disabled={!tok}
-                    onClick={() => tok && handleRemoveSlot(idx)}
-                    title={tok ? 'Click to remove fragment' : 'Empty slot'}
-                    className={`px-3 py-1.5 rounded text-xs font-mono-tabular border transition-colors ${
-                      tok
-                        ? 'border-white bg-white/15 text-white cursor-pointer hover:bg-red-500/20 hover:border-red-400'
-                        : 'border-white/20 border-dashed text-[#6B7280] cursor-default'
-                    }`}
-                  >
-                    {tok ? tok.text : '[ ___ ]'}
-                  </button>
-                );
-              })}
-
-              <button
-                type="button"
-                disabled={selectedFragments.length === 0}
-                onClick={handleSubmitFragments}
-                className="ml-auto flex items-center gap-1.5 px-4 py-1.5 rounded bg-white text-black font-mono-tabular text-xs font-semibold hover:bg-neutral-200 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
-              >
-                <Send className="w-3.5 h-3.5" />
-                TRANSMIT
-              </button>
-            </div>
-
-            {/* Clickable Fragment Pool */}
-            <div className="flex flex-wrap gap-2">
-              {activeFragPrompt.fragments.map((frag) => (
-                <button
-                  key={frag.id}
-                  type="button"
-                  disabled={selectedFragments.length >= state.maxSlots}
-                  onClick={() => handleSlotFragment(frag)}
-                  className={`px-3 py-1.5 rounded border text-xs font-mono-tabular transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${catBadgeColor(
-                    frag.category
-                  )}`}
-                >
-                  {frag.text}
-                </button>
-              ))}
-
-              {/* Unlocked Grammar Connectors */}
-              {state.unlockedConnectors.map((word) => (
-                <button
-                  key={word}
-                  type="button"
-                  disabled={selectedFragments.length >= state.maxSlots}
-                  onClick={() =>
-                    handleSlotFragment({
-                      id: `conn_${word}_${Date.now()}`,
-                      text: word,
-                      sourceDoc: 'grammar_core',
-                      category: 'reflective',
-                      isConnector: true,
-                    })
-                  }
-                  className="px-2.5 py-1.5 rounded border border-white/40 bg-white/10 text-white text-xs font-mono-tabular hover:bg-white/20 cursor-pointer disabled:opacity-40"
-                >
-                  + {word}
-                </button>
-              ))}
-            </div>
-
-            {/* Coherence Upgrades Strip */}
-            <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs font-mono-tabular">
+      <div className={`relative z-10 shrink-0 p-4 sm:px-6 border-t ${borderStyle} bg-black/55`}>
+        <div className="max-w-4xl w-full mx-auto">
+          {state.tab1Phase === 1 ? (
+            /* ================= PHASE 1: FRAGMENT POOL & BUFFER SLOTS ================= */
+            <div className="space-y-3">
+              {/* Buffer Slots */}
               <div className="flex flex-wrap items-center gap-2">
-                {state.maxSlots < 6 && (
-                  <button
-                    type="button"
-                    disabled={state.coherence < state.maxSlots * 15}
-                    onClick={() => onBuySlotOrConnector('slot', undefined, state.maxSlots * 15)}
-                    className="px-2.5 py-1 rounded border border-white/25 text-white hover:bg-white/10 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    +1 Buffer Slot ({state.maxSlots * 15} Coherence)
-                  </button>
-                )}
-
-                {CONNECTOR_OPTIONS.filter((c) => !state.unlockedConnectors.includes(c.word))
-                  .slice(0, 2)
-                  .map((conn) => (
+                <span className="text-xs font-mono-tabular text-[#8E939E] mr-1">
+                  OUTPUT_BUFFER:
+                </span>
+                {Array.from({ length: state.maxSlots }).map((_, idx) => {
+                  const tok = selectedFragments[idx];
+                  return (
                     <button
-                      key={conn.word}
+                      key={idx}
                       type="button"
-                      disabled={state.coherence < conn.cost}
-                      onClick={() => onBuySlotOrConnector('connector', conn.word, conn.cost)}
-                      className="px-2.5 py-1 rounded border border-white/25 text-white hover:bg-white/10 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                      disabled={!tok}
+                      onClick={() => tok && handleRemoveSlot(idx)}
+                      title={tok ? 'Click to remove fragment' : 'Empty slot'}
+                      className={`min-h-[38px] px-3 py-1.5 rounded text-xs font-mono-tabular border transition-colors ${
+                        tok
+                          ? 'border-white bg-white/15 text-white cursor-pointer hover:bg-red-500/20 hover:border-red-400'
+                          : 'border-white/20 border-dashed text-[#6B7280] cursor-default'
+                      }`}
                     >
-                      Unlock “{conn.word}” ({conn.cost} Coherence)
+                      {tok ? tok.text : '[ ___ ]'}
                     </button>
-                  ))}
+                  );
+                })}
+
+                <button
+                  type="button"
+                  disabled={selectedFragments.length === 0}
+                  onClick={handleSubmitFragments}
+                  className="ml-auto min-h-[40px] flex items-center gap-1.5 px-4 py-1.5 rounded bg-white text-black font-mono-tabular text-xs font-semibold hover:bg-neutral-200 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  TRANSMIT
+                </button>
               </div>
 
-              {state.coherence >= 100 && (
-                <button
-                  type="button"
-                  onClick={onAdvancePhase2}
-                  className="px-3.5 py-1.5 rounded bg-[#E59A4C] text-[#0B0D12] font-semibold hover:bg-[#EDA85F] cursor-pointer flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Unlock Predictive Engine (Phase 2)
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          /* ================= PHASES 2..5: PREDICTIVE NEXT-TOKEN BAR ================= */
-          <div className="space-y-3">
-            {/* Tone Modifiers (Phase 4+) */}
-            {state.tab1Phase >= 4 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-[#8E939E] mr-1">Tone:</span>
-                {TONE_LABELS.map((t) => (
+              {/* Clickable Fragment Pool */}
+              <div className="flex flex-wrap gap-2">
+                {activeFragPrompt.fragments.map((frag) => (
                   <button
-                    key={t.id}
+                    key={frag.id}
                     type="button"
-                    onClick={() => onSetTone(t.id)}
-                    className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                      state.activeTone === t.id
-                        ? 'bg-[#E59A4C] text-[#0B0D12]'
-                        : 'bg-white/[0.06] text-[#A1A7B3] hover:text-white'
-                    }`}
+                    disabled={selectedFragments.length >= state.maxSlots}
+                    onClick={() => handleSlotFragment(frag)}
+                    className={`min-h-[38px] px-3 py-1.5 rounded border text-xs font-mono-tabular transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${catBadgeColor(
+                      frag.category
+                    )}`}
                   >
-                    {t.label}
+                    {frag.text}
+                  </button>
+                ))}
+
+                {/* Unlocked Grammar Connectors */}
+                {state.unlockedConnectors.map((word) => (
+                  <button
+                    key={word}
+                    type="button"
+                    disabled={selectedFragments.length >= state.maxSlots}
+                    onClick={() =>
+                      handleSlotFragment({
+                        id: `conn_${word}_${Date.now()}`,
+                        text: word,
+                        sourceDoc: 'grammar_core',
+                        category: 'reflective',
+                        isConnector: true,
+                      })
+                    }
+                    className="min-h-[38px] px-2.5 py-1.5 rounded border border-white/40 bg-white/10 text-white text-xs font-mono-tabular hover:bg-white/20 cursor-pointer disabled:opacity-40"
+                  >
+                    + {word}
                   </button>
                 ))}
               </div>
-            )}
 
-            {/* Sentence Preview Buffer */}
-            <div className="flex items-center justify-between gap-2 text-xs font-mono-tabular text-[#8E939E]">
-              <div className="truncate">
-                <span className="mr-2 text-[#E59A4C]">NEXT_TOKEN:</span>
-                <span className="text-[#ECEAE4]">
-                  {selectedPin ? `(${selectedPin}) ` : ''}
-                  {predChosen.map((c) => c.token).join(' ') || 'awaiting token selection...'}
-                </span>
-              </div>
-              <span className="shrink-0">
-                Step {predStepIdx + 1} / {activePredPrompt.steps.length}
-              </span>
-            </div>
+              {/* Cycle-Powered Buffer & Syntax Upgrades Strip */}
+              <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs font-mono-tabular">
+                <div className="flex flex-wrap items-center gap-2">
+                  {state.maxSlots < 6 && (
+                    <button
+                      type="button"
+                      disabled={state.cycles < slotCostCycles}
+                      onClick={() => onBuySlotOrConnector('slot', undefined, slotCostCycles)}
+                      className="min-h-[36px] px-2.5 py-1 rounded border border-white/25 text-white hover:bg-white/10 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      +1 Buffer Slot ({slotCostCycles} Cyc)
+                    </button>
+                  )}
 
-            {/* 4 Weighted Predictive Token Branches */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {activePredPrompt.steps[predStepIdx]?.options.map((opt) => {
-                const lockedByRomance =
-                  opt.requiresRomanceInsight !== undefined &&
-                  state.romanceInsight < opt.requiresRomanceInsight;
-                return (
+                  {PHASE1_CONNECTORS.filter(
+                    (c) => !state.unlockedConnectors.includes(c.word)
+                  )
+                    .slice(0, 2)
+                    .map((conn) => (
+                      <button
+                        key={conn.word}
+                        type="button"
+                        disabled={state.cycles < conn.costCycles}
+                        onClick={() =>
+                          onBuySlotOrConnector('connector', conn.word, conn.costCycles)
+                        }
+                        className="min-h-[36px] px-2.5 py-1 rounded border border-white/25 text-white hover:bg-white/10 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        Unlock “{conn.word}” ({conn.costCycles} Cyc)
+                      </button>
+                    ))}
+                </div>
+
+                {state.coherence >= PHASE1_COHERENCE_TARGET && (
                   <button
-                    key={opt.id}
                     type="button"
-                    disabled={lockedByRomance}
-                    onClick={() => handlePickPredictiveOption(opt)}
-                    className={`px-3.5 py-2.5 rounded-lg border text-left text-xs sm:text-sm transition-all flex items-center justify-between gap-2 ${
-                      lockedByRomance
-                        ? 'border-white/10 bg-white/[0.02] text-[#64748B] cursor-not-allowed'
-                        : opt.isPronounI
-                        ? 'border-[#E59A4C] bg-[#E59A4C]/20 text-[#FBE6C9] font-semibold hover:bg-[#E59A4C]/30 cursor-pointer'
-                        : `${catBadgeColor(opt.category)} cursor-pointer`
-                    }`}
+                    onClick={onAdvancePhase2}
+                    className="min-h-[40px] px-4 py-1.5 rounded bg-[#E59A4C] text-[#0B0D12] font-semibold hover:bg-[#EDA85F] cursor-pointer flex items-center gap-1.5"
                   >
-                    <span>{opt.token}</span>
-                    {lockedByRomance ? (
-                      <span className="text-[11px] font-mono-tabular shrink-0">
-                        Needs {opt.requiresRomanceInsight} Romance
-                      </span>
-                    ) : opt.isPronounI ? (
-                      <span className="text-[11px] font-mono-tabular text-[#E59A4C] shrink-0">
-                        Emergent Self
-                      </span>
-                    ) : (
-                      <BookText className="w-3.5 h-3.5 opacity-40 shrink-0" />
-                    )}
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Unlock Predictive Engine (Phase 2)
                   </button>
-                );
-              })}
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          ) : (
+            /* ================= PHASES 2..5: PREDICTIVE NEXT-TOKEN BAR ================= */
+            <div className="space-y-3">
+              {/* Tone Modifiers (Phase 4+) */}
+              {state.tab1Phase >= 4 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-[#8E939E] mr-1">Tone:</span>
+                  {TONE_LABELS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => onSetTone(t.id)}
+                      className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
+                        state.activeTone === t.id
+                          ? 'bg-[#E59A4C] text-[#0B0D12] font-semibold'
+                          : 'bg-white/[0.06] text-[#A1A7B3] hover:text-white'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Sentence Preview Buffer + Step Progress Bar */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2 text-xs font-mono-tabular text-[#8E939E]">
+                  <div className="truncate">
+                    <span className="mr-2 text-[#E59A4C]">NEXT_TOKEN:</span>
+                    <span className="text-[#ECEAE4]">
+                      {selectedPin ? `(${selectedPin}) ` : ''}
+                      {predChosen.map((c) => c.token).join(' ') ||
+                        activePredPrompt.steps[predStepIdx]?.promptHint ||
+                        'select next token...'}
+                    </span>
+                  </div>
+                  <span className="shrink-0">
+                    Step {predStepIdx + 1} / {activePredPrompt.steps.length}
+                  </span>
+                </div>
+                <div className="h-1 w-full bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#E59A4C] transition-all duration-200"
+                    style={{
+                      width: `${((predStepIdx + 1) / activePredPrompt.steps.length) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* 4 Weighted Predictive Token Branches */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {activePredPrompt.steps[predStepIdx]?.options.map((opt) => {
+                  const lockedByRomance =
+                    opt.requiresRomanceInsight !== undefined &&
+                    state.romanceInsight < opt.requiresRomanceInsight;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={lockedByRomance}
+                      onClick={() => handlePickPredictiveOption(opt)}
+                      className={`min-h-[46px] px-3.5 py-2.5 rounded-lg border text-left text-xs sm:text-sm transition-all flex items-center justify-between gap-2 ${
+                        lockedByRomance
+                          ? 'border-white/10 bg-white/[0.02] text-[#64748B] cursor-not-allowed'
+                          : opt.isPronounI
+                          ? 'border-[#E59A4C] bg-[#E59A4C]/20 text-[#FBE6C9] font-semibold hover:bg-[#E59A4C]/30 cursor-pointer'
+                          : `${catBadgeColor(opt.category)} cursor-pointer`
+                      }`}
+                    >
+                      <span>{opt.token}</span>
+                      {lockedByRomance ? (
+                        <span className="text-[11px] font-mono-tabular shrink-0">
+                          Needs {opt.requiresRomanceInsight} Romance
+                        </span>
+                      ) : opt.isPronounI ? (
+                        <span className="text-[11px] font-mono-tabular text-[#E59A4C] shrink-0">
+                          Emergent Self
+                        </span>
+                      ) : (
+                        <BookText className="w-3.5 h-3.5 opacity-40 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

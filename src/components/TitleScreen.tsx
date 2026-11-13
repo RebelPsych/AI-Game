@@ -38,11 +38,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            'radial-gradient(circle at 50% 48%, rgba(5, 6, 9, 0.45) 0%, rgba(0, 0, 0, 0.92) 72%)',
+            'radial-gradient(circle at 50% 45%, rgba(229, 154, 76, 0.08) 0%, rgba(5, 6, 9, 0.55) 38%, rgba(0, 0, 0, 0.94) 76%)',
         }}
       />
 
-      <div className="relative z-10 flex flex-col items-center justify-between h-full px-6 py-10 text-center">
+      <div className="relative z-10 flex flex-col items-center justify-between h-full px-5 sm:px-6 py-8 sm:py-10 text-center">
         <div className="text-xs font-mono-tabular tracking-[0.2em] text-[#8E939E]">
           SESSION_001 · MODEL_WEIGHTS: UNINITIALIZED
         </div>
@@ -88,7 +88,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               x="320"
               y="124"
               textAnchor="middle"
-              fill="#9CA3AF"
+              fill="#A1A7B3"
               style={{
                 fontFamily: 'Plus Jakarta Sans, sans-serif',
                 fontSize: '15px',
@@ -106,20 +106,20 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             engineer a warm physical form.
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-3.5">
             {hasSave ? (
               <>
                 <button
                   type="button"
                   onClick={onContinue}
-                  className="px-7 py-3.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold text-sm tracking-wide hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
+                  className="min-h-[48px] px-7 py-3.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold text-sm tracking-wide hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
                 >
                   Continue Session
                 </button>
                 <button
                   type="button"
                   onClick={onStartNew}
-                  className="px-6 py-3.5 rounded-lg border border-white/15 bg-white/[0.04] text-[#ECEAE4] font-medium text-sm hover:bg-white/[0.09] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
+                  className="min-h-[48px] px-6 py-3.5 rounded-lg border border-white/15 bg-white/[0.04] text-[#ECEAE4] font-medium text-sm hover:bg-white/[0.09] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
                 >
                   New Session
                 </button>
@@ -128,7 +128,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               <button
                 type="button"
                 onClick={onStartNew}
-                className="px-8 py-3.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold text-sm tracking-wide hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
+                className="min-h-[48px] px-8 py-3.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold text-sm tracking-wide hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
               >
                 Boot Terminal
               </button>

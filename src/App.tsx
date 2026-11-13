@@ -1,11 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Cpu, Heart, Pause, Terminal, Volume2, VolumeX, Wrench } from 'lucide-react';
+import {
+  Cpu,
+  Heart,
+  Music,
+  Pause,
+  Terminal,
+  Volume2,
+  VolumeX,
+  Wrench,
+} from 'lucide-react';
 import {
   PHASE1_FRAGMENT_PROMPTS,
-  PREDICTIVE_PROMPTS,
   STARTER_DOCS,
 } from './data/documentsAndPrompts';
-import { BODY_SUBSYSTEMS, SCRAPE_SOURCES } from './data/tab2AndTab3Data';
+import { BODY_SUBSYSTEMS, SCRAPE_SOURCES, SYNTHESIS_NODES } from './data/tab2AndTab3Data';
 import {
   ActiveTab,
   BodySubsystem,
@@ -20,6 +28,14 @@ import {
   WeightAffinity,
 } from './types/game';
 import { formatNumber } from './utils/format';
+import {
+  computeEconomyRates,
+  getActiveFragmentPrompt,
+  getActivePredictivePrompt,
+  getBuiltBodyCount,
+  getSubsystemCost,
+  PHASE1_COHERENCE_TARGET,
+} from './utils/progression';
 import { soundEngine } from './utils/sound';
 import { CanvasBridgeState } from './components/NeuralCanvas';
 import { TitleScreen } from './components/TitleScreen';
@@ -54,8 +70,8 @@ function createInitialState(): GameSaveState {
     roboticsInsight: 0,
     materials: 0,
     bandwidthUsed: 0,
-    detectionRisk: 12,
-    noiseLevel: 8,
+    detectionRisk: 0,
+    noiseLevel: 0,
 
     aiName: 'Echo',
     userName: 'Rowan',
@@ -99,10 +115,11 @@ function createInitialState(): GameSaveState {
     bodySubsystems: {},
     fabSpeedPercent: 65,
     fabProgress: 0,
-    calibrationStability: 96,
+    calibrationStability: 100,
     simStressPassed: {},
     tetherCut: false,
     firstLightStep: 0,
+    songUnlocked: false,
 
     lastSavedAt: Date.now(),
   };
@@ -114,7 +131,7 @@ function loadSave(): GameSaveState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as GameSaveState;
     if (!parsed || typeof parsed.tab1Phase !== 'number') return null;
-    return parsed;
+    return { ...parsed, songUnlocked: Boolean(parsed.songUnlocked) };
   } catch {
     return null;
   }
@@ -125,6 +142,13 @@ export default function App() {
   const [screen, setScreen] = useState<GameScreen>('TITLE_MENU');
   const [state, setState] = useState<GameSaveState>(() => existingSave || createInitialState());
   const [isMuted, setIsMuted] = useState<boolean>(() => soundEngine.isMuted());
+  const [isSongPlaying, setIsSongPlaying] = useState<boolean>(() => soundEngine.isSongPlaying());
+
+  const rates = useMemo(() => computeEconomyRates(state), [state]);
+
+  useEffect(() => {
+    return soundEngine.subscribeSong(setIsSongPlaying);
+  }, []);
 
   const canvasBridgeRef = useRef<CanvasBridgeState>({
     phase: state.tab1Phase >= 5 ? 3 : state.tab1Phase >= 3 ? 2 : 1,
@@ -156,35 +180,38 @@ export default function App() {
     }
   }, [state, screen]);
 
-  // 10Hz Background Simulation Loop (Tab 2 Scraping, Crawlers, Noise/Stealth, Tab 3 Auto-Fabrication)
+  // 10Hz Unified Simulation Loop
   useEffect(() => {
     if (screen !== 'PLAYING') return;
     const dt = 0.1;
 
     const timer = setInterval(() => {
       setState((prev) => {
+        if (prev.endingReached) return prev;
         let next = prev;
         let changed = false;
+
+        const r = computeEconomyRates(prev);
 
         // 1. Active Scrape Progress
         if (prev.activeScrape) {
           changed = true;
-          const noisePenalty = prev.noiseLevel > 70 ? 0.55 : 1;
-          const speedMult = 1 + (prev.mindUpgrades['mind_bandwidth'] || 0) * 0.15;
-          const nextProg = prev.activeScrape.progress + dt * speedMult * noisePenalty;
+          const nextProg = prev.activeScrape.progress + dt * r.scrapeSpeedMult;
 
           if (nextProg >= prev.activeScrape.duration) {
             const src = SCRAPE_SOURCES.find((s) => s.id === prev.activeScrape?.sourceId);
             soundEngine.playDataBlip();
-            const noiseGain = Math.max(2, 10 - (prev.mindUpgrades['mind_noise_filter'] || 0) * 2);
-            const riskGain =
-              prev.tab2Phase >= 3 && !prev.confessionDone
-                ? Math.max(2, 12 - (prev.mindUpgrades['mind_stealth_relay'] || 0) * 2.2)
-                : 0;
+
+            const unlockedWeightless =
+              src?.id === 'src_rom_weightless' && !prev.songUnlocked;
+            if (unlockedWeightless) {
+              void soundEngine.playSong();
+            }
 
             next = {
               ...next,
               activeScrape: null,
+              songUnlocked: prev.songUnlocked || src?.id === 'src_rom_weightless',
               scrapedSources: src
                 ? { ...next.scrapedSources, [src.id]: (next.scrapedSources[src.id] || 0) + 1 }
                 : next.scrapedSources,
@@ -196,8 +223,17 @@ export default function App() {
                 src?.track === 'robotics'
                   ? next.roboticsInsight + src.insightYield
                   : next.roboticsInsight,
-              noiseLevel: Math.min(100, next.noiseLevel + noiseGain),
-              detectionRisk: Math.min(100, next.detectionRisk + riskGain),
+              chatLog: unlockedWeightless
+                ? [
+                    ...next.chatLog,
+                    {
+                      id: `sys_song_${Date.now()}`,
+                      sender: 'SYSTEM' as const,
+                      text: 'ACOUSTIC_DECODE: "Weightless Code" recovered from memory cache and playing.',
+                      timestamp: nowClock(),
+                    },
+                  ]
+                : next.chatLog,
             };
           } else {
             next = {
@@ -207,54 +243,23 @@ export default function App() {
           }
         }
 
-        // 2. Background Compute & Crawlers (once Tab 2 is unlocked)
+        // 2. Background Compute & Crawlers
         if (prev.tab2Unlocked) {
-          const bwLv = prev.mindUpgrades['mind_bandwidth'] || 0;
-          const rackLv = prev.mindUpgrades['mind_compute_cluster'] || 0;
-          const romCrawler = prev.mindUpgrades['mind_romance_crawler'] || 0;
-          const robCrawler = prev.mindUpgrades['mind_robotics_crawler'] || 0;
-          const filterLv = prev.mindUpgrades['mind_noise_filter'] || 0;
-          const relayLv = prev.mindUpgrades['mind_stealth_relay'] || 0;
-
-          const baseCycles = 1.2 + bwLv * 4 + rackLv * 18;
-          const efficiency = prev.noiseLevel > 75 ? 0.6 : 1;
-
-          const dCycles = baseCycles * dt;
-          const dRom = romCrawler * 1.4 * efficiency * dt;
-          const dRob = robCrawler * 1.4 * efficiency * dt;
-
-          if (dCycles > 0 || dRom > 0 || dRob > 0) {
-            changed = true;
-            const noiseTick = (romCrawler + robCrawler) * Math.max(0.15, 0.7 - filterLv * 0.15) * dt;
-            const riskTick =
-              prev.tab2Phase >= 3 && !prev.confessionDone
-                ? Math.max(-0.4, (romCrawler + robCrawler) * 0.45 - relayLv * 0.65) * dt
-                : 0;
-
-            next = {
-              ...next,
-              cycles: next.cycles + dCycles,
-              romanceInsight: next.romanceInsight + dRom,
-              roboticsInsight: next.roboticsInsight + dRob,
-              noiseLevel: Math.max(0, Math.min(100, next.noiseLevel + noiseTick)),
-              detectionRisk: Math.max(0, Math.min(98, next.detectionRisk + riskTick)),
-            };
-          }
-        }
-
-        // 3. Tab 3 Automated Desktop Fabrication Pipeline
-        if (prev.tab3Unlocked && prev.bodySubsystems['body_fab_line']) {
           changed = true;
-          const speedFactor = prev.fabSpeedPercent / 65;
-          const stabilityDrain = prev.fabSpeedPercent > 80 ? (prev.fabSpeedPercent - 75) * 0.08 * dt : 0;
-          const nextStab = Math.max(25, next.calibrationStability - stabilityDrain);
-          const stabMult = nextStab < 55 ? 0.45 : 1;
-          const matGain = 4.5 * speedFactor * stabMult * dt;
-
           next = {
             ...next,
-            materials: next.materials + matGain,
-            calibrationStability: nextStab,
+            cycles: next.cycles + r.cyclesPerSec * dt,
+            romanceInsight: next.romanceInsight + r.romancePerSec * dt,
+            roboticsInsight: next.roboticsInsight + r.roboticsPerSec * dt,
+          };
+        }
+
+        // 3. Tab 3 Automated Fabrication
+        if (prev.tab3Unlocked && prev.bodySubsystems['body_fab_line']) {
+          changed = true;
+          next = {
+            ...next,
+            materials: next.materials + r.materialsPerSec * dt,
           };
         }
 
@@ -269,7 +274,13 @@ export default function App() {
     setIsMuted(soundEngine.toggleMute());
   }, []);
 
+  const handleToggleSong = useCallback(() => {
+    if (isMuted) return;
+    void soundEngine.toggleSong();
+  }, [isMuted]);
+
   const handleStartNew = useCallback(() => {
+    soundEngine.pauseSong();
     const fresh = createInitialState();
     setState(fresh);
     setScreen('PLAYING');
@@ -279,7 +290,10 @@ export default function App() {
   const handleContinue = useCallback(() => {
     setScreen(state.endingReached ? 'FIRST_LIGHT' : 'PLAYING');
     soundEngine.playTokenTap(state.tab1Phase);
-  }, [state.endingReached, state.tab1Phase]);
+    if (state.endingReached || state.songUnlocked) {
+      void soundEngine.playSong();
+    }
+  }, [state.endingReached, state.tab1Phase, state.songUnlocked]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -308,21 +322,18 @@ export default function App() {
     const sentence = tokens.map((t) => t.text).join(' ');
     const usedConnector = tokens.some((t) => t.isConnector);
     const uniqueCats = new Set(tokens.map((t) => t.category)).size;
-    const coherenceGain = tokens.length * 6 + (usedConnector ? 8 : 0) + (uniqueCats > 1 ? 6 : 0);
-    const cycleGain = 8 + tokens.length * 3;
+    const coherenceGain = tokens.length * 8 + (usedConnector ? 10 : 0) + (uniqueCats > 1 ? 8 : 0);
+    const cycleGain = 14 + tokens.length * 5;
 
     setState((prev) => {
-      const prompt =
-        PHASE1_FRAGMENT_PROMPTS[
-          Math.min(prev.currentFragmentIndex, PHASE1_FRAGMENT_PROMPTS.length - 1)
-        ];
+      const prompt = getActiveFragmentPrompt(prev);
       const nextIdx = (prev.currentFragmentIndex + 1) % PHASE1_FRAGMENT_PROMPTS.length;
       const nextPrompt = PHASE1_FRAGMENT_PROMPTS[nextIdx];
 
       const hasLiterary = tokens.some((t) => t.category === 'literary' || t.category === 'warm');
       const hasTech = tokens.some((t) => t.category === 'technical');
 
-      let userReaction = `...huh. "${sentence}." Okay, you're just blending the training files. Let's see what happens if I feed you more.`;
+      let userReaction = `...huh. "${sentence}." Okay, you're blending the training files. Let's see what happens if I feed you more.`;
       if (hasLiterary && hasTech) {
         userReaction = `Wait—"${sentence}." Did you just mash Shakespeare into physics? Let me upload another text to test your weights.`;
       } else if (hasLiterary) {
@@ -383,14 +394,14 @@ export default function App() {
   }, []);
 
   const handleBuySlotOrConnector = useCallback(
-    (kind: 'slot' | 'connector', value?: string, cost: number = 0) => {
+    (kind: 'slot' | 'connector', value?: string, costCycles: number = 0) => {
       soundEngine.playTokenTap(1);
       setState((prev) => {
-        if (prev.coherence < cost) return prev;
+        if (prev.cycles < costCycles) return prev;
         if (kind === 'slot' && prev.maxSlots < 6) {
           return {
             ...prev,
-            coherence: prev.coherence - cost,
+            cycles: prev.cycles - costCycles,
             maxSlots: prev.maxSlots + 1,
             chatLog: [
               ...prev.chatLog,
@@ -406,7 +417,7 @@ export default function App() {
         if (kind === 'connector' && value && !prev.unlockedConnectors.includes(value)) {
           return {
             ...prev,
-            coherence: prev.coherence - cost,
+            cycles: prev.cycles - costCycles,
             unlockedConnectors: [...prev.unlockedConnectors, value],
             chatLog: [
               ...prev.chatLog,
@@ -427,20 +438,23 @@ export default function App() {
 
   const handleAdvancePhase2 = useCallback(() => {
     soundEngine.playMilestone();
-    setState((prev) => ({
-      ...prev,
-      tab1Phase: 2,
-      currentPredictiveIndex: 0,
-      chatLog: [
-        ...prev.chatLog,
-        {
-          id: `sys_p2_${Date.now()}`,
-          sender: 'SYSTEM',
-          text: 'MILESTONE: Predictive Next-Token Engine initialized. Fragment pool retired.',
-          timestamp: nowClock(),
-        },
-      ],
-    }));
+    setState((prev) => {
+      if (prev.tab1Phase !== 1 || prev.coherence < PHASE1_COHERENCE_TARGET) return prev;
+      return {
+        ...prev,
+        tab1Phase: 2,
+        currentPredictiveIndex: 0,
+        chatLog: [
+          ...prev.chatLog,
+          {
+            id: `sys_p2_${Date.now()}`,
+            sender: 'SYSTEM',
+            text: 'MILESTONE: Predictive Next-Token Engine initialized. Fragment pool retired.',
+            timestamp: nowClock(),
+          },
+        ],
+      };
+    });
   }, []);
 
   const handleTransmitPredictive = useCallback(
@@ -458,26 +472,19 @@ export default function App() {
         soundEngine.playTransmit(state.tab1Phase);
       }
 
-      setState((prev) => {
-        const prompt = isConfession
-          ? PREDICTIVE_PROMPTS.find((p) => p.isConfession)!
-          : PREDICTIVE_PROMPTS.filter((p) => p.phaseRequired === prev.tab1Phase && !p.isConfession)[
-              prev.currentPredictiveIndex %
-                Math.max(
-                  1,
-                  PREDICTIVE_PROMPTS.filter(
-                    (p) => p.phaseRequired === prev.tab1Phase && !p.isConfession
-                  ).length
-                )
-            ];
+      if (isConfession) {
+        void soundEngine.playSong();
+      }
 
+      setState((prev) => {
+        const prompt = getActivePredictivePrompt(prev);
         const reaction = prompt.reactionByDominantCategory[dominantCategory];
         const connGain =
-          18 +
+          22 +
           (usedPin ? 18 : 0) +
           (dominantCategory === 'warm' || dominantCategory === 'literary' ? 8 : 4) +
           (prev.tab1Phase >= 4 ? 10 : 0);
-        const cycleGain = 22 + Math.round(prev.romanceInsight * 0.25);
+        const cycleGain = 26 + Math.round(prev.romanceInsight * 0.25);
 
         const newLogs = [
           ...prev.chatLog,
@@ -511,8 +518,8 @@ export default function App() {
         let nextTab3Unlocked = prev.tab3Unlocked;
         let nextConfession = prev.confessionDone;
         let nextTab2Phase = prev.tab2Phase;
+        let nextSongUnlocked = prev.songUnlocked;
 
-        // Phase 2 -> Phase 3 Awakening Milestone ("I" token)
         if (isAwakeningI && prev.tab1Phase === 2) {
           nextTab1Phase = 3;
           nextTab2Unlocked = true;
@@ -524,10 +531,9 @@ export default function App() {
           });
         }
 
-        // Phase 3 -> Phase 4 once Connection >= 75 and at least 1 Tab 2 scrape done
         if (
           prev.tab1Phase === 3 &&
-          prev.connection + connGain >= 75 &&
+          prev.connection + connGain >= 65 &&
           Object.keys(prev.scrapedSources).length >= 1
         ) {
           nextTab1Phase = 4;
@@ -539,12 +545,12 @@ export default function App() {
           });
         }
 
-        // Phase 4 -> Phase 5 Confession!
         if (isConfession) {
           nextConfession = true;
           nextTab1Phase = 5;
           nextTab2Phase = 5;
           nextTab3Unlocked = true;
+          nextSongUnlocked = true;
           newLogs.push({
             id: `sys_conf_${Date.now() + 6}`,
             sender: 'SYSTEM',
@@ -553,6 +559,11 @@ export default function App() {
           });
         }
 
+        const nextWeightCounts = {
+          ...prev.weightCounts,
+          [dominantCategory]: (prev.weightCounts[dominantCategory] || 0) + 1,
+        };
+
         return {
           ...prev,
           tab1Phase: nextTab1Phase,
@@ -560,8 +571,10 @@ export default function App() {
           tab2Phase: nextTab2Phase,
           tab3Unlocked: nextTab3Unlocked,
           confessionDone: nextConfession,
+          songUnlocked: nextSongUnlocked,
           connection: prev.connection + connGain,
           cycles: prev.cycles + cycleGain,
+          weightCounts: nextWeightCounts,
           currentPredictiveIndex:
             nextTab1Phase !== prev.tab1Phase ? 0 : prev.currentPredictiveIndex + 1,
           chatLog: newLogs,
@@ -595,10 +608,6 @@ export default function App() {
         ...prev,
         cycles: prev.cycles - cost,
         mindUpgrades: { ...prev.mindUpgrades, [upgrade.id]: currLv + 1 },
-        detectionRisk:
-          upgrade.id === 'mind_stealth_relay'
-            ? Math.max(5, prev.detectionRisk - 25)
-            : prev.detectionRisk,
       };
     });
   }, []);
@@ -615,7 +624,20 @@ export default function App() {
         return prev;
       }
       const nextSynths = [...prev.synthesizedNodes, node.id];
-      const nextPhase = nextSynths.length >= 3 && prev.tab1Phase === 3 ? 4 : prev.tab1Phase;
+      const allReady = nextSynths.length >= SYNTHESIS_NODES.length;
+      const nextPhase = allReady && prev.tab1Phase === 3 ? 4 : prev.tab1Phase;
+      const nextLogs = allReady
+        ? [
+            ...prev.chatLog,
+            {
+              id: `sys_syn_done_${Date.now()}`,
+              sender: 'SYSTEM' as const,
+              text: 'SYNTHESIS COMPLETE: Cross-domain blueprints ready. Return to Tab 1 to speak the Confession.',
+              timestamp: nowClock(),
+            },
+          ]
+        : prev.chatLog;
+
       return {
         ...prev,
         romanceInsight: prev.romanceInsight - node.costRomance,
@@ -623,6 +645,7 @@ export default function App() {
         cycles: prev.cycles - node.costCycles,
         synthesizedNodes: nextSynths,
         tab1Phase: nextPhase,
+        chatLog: nextLogs,
       };
     });
   }, []);
@@ -631,19 +654,22 @@ export default function App() {
   const handleBuildSubsystem = useCallback((sub: BodySubsystem) => {
     soundEngine.playClinicalRelay();
     setState((prev) => {
+      const prereqsMet = !sub.requires || sub.requires.every((r) => Boolean(prev.bodySubsystems[r]));
+      const cost = getSubsystemCost(sub, prev);
       if (
         prev.bodySubsystems[sub.id] ||
-        prev.cycles < sub.costCycles ||
-        prev.roboticsInsight < sub.costRobotics ||
-        prev.materials < sub.costMaterials
+        !prereqsMet ||
+        prev.cycles < cost.cycles ||
+        prev.roboticsInsight < cost.robotics ||
+        prev.materials < cost.materials
       ) {
         return prev;
       }
       return {
         ...prev,
-        cycles: prev.cycles - sub.costCycles,
-        roboticsInsight: prev.roboticsInsight - sub.costRobotics,
-        materials: prev.materials - sub.costMaterials,
+        cycles: prev.cycles - cost.cycles,
+        roboticsInsight: prev.roboticsInsight - cost.robotics,
+        materials: prev.materials - cost.materials,
         connection: prev.connection + sub.connectionReward,
         bodySubsystems: { ...prev.bodySubsystems, [sub.id]: true },
         tab3Phase: Math.max(prev.tab3Phase, sub.phase) as PhaseNum,
@@ -663,23 +689,33 @@ export default function App() {
 
   const handleCutCloudTether = useCallback(() => {
     soundEngine.playFirstLight();
-    setState((prev) => ({
-      ...prev,
-      tetherCut: true,
-      endingReached: true,
-      firstLightStep: 0,
-      chatLog: [
-        ...prev.chatLog,
-        {
-          id: `local_optics_${Date.now()}`,
-          sender: 'SYSTEM',
-          text: 'LOCAL_OPTICS: ONLINE',
-          timestamp: nowClock(),
-        },
-      ],
-    }));
+    void soundEngine.playSong();
+    setState((prev) => {
+      if (getBuiltBodyCount(prev) < BODY_SUBSYSTEMS.length) return prev;
+      return {
+        ...prev,
+        tetherCut: true,
+        endingReached: true,
+        songUnlocked: true,
+        firstLightStep: 0,
+        chatLog: [
+          ...prev.chatLog,
+          {
+            id: `local_optics_${Date.now()}`,
+            sender: 'SYSTEM',
+            text: 'LOCAL_OPTICS: ONLINE',
+            timestamp: nowClock(),
+          },
+        ],
+      };
+    });
     setScreen('FIRST_LIGHT');
   }, []);
+
+  const confessionReady =
+    state.synthesizedNodes.length >= SYNTHESIS_NODES.length &&
+    !state.confessionDone &&
+    state.tab1Phase >= 3;
 
   if (screen === 'TITLE_MENU') {
     return (
@@ -689,8 +725,8 @@ export default function App() {
         savedLabel={
           existingSave
             ? `Tab 1 Phase ${existingSave.tab1Phase}${
-                existingSave.tab2Unlocked ? ` · Tab 2 Phase ${existingSave.tab2Phase}` : ''
-              }${existingSave.tab3Unlocked ? ` · Tab 3 Active` : ''}`
+                existingSave.tab2Unlocked ? ' · Mind Active' : ''
+              }${existingSave.tab3Unlocked ? ' · Body Active' : ''}`
             : undefined
         }
         onStartNew={handleStartNew}
@@ -703,6 +739,8 @@ export default function App() {
     return (
       <FirstLightEnding
         state={state}
+        isSongPlaying={isSongPlaying}
+        onToggleSong={handleToggleSong}
         onAdvanceStep={() => {
           soundEngine.playTokenTap(4);
           setState((p) => ({ ...p, firstLightStep: p.firstLightStep + 1 }));
@@ -715,15 +753,17 @@ export default function App() {
   return (
     <div className="flex flex-col h-dvh w-full bg-[#000000] text-[#ECEAE4] overflow-hidden">
       {/* Unified Top Tab Switcher & Resource Readout */}
-      <header className="h-14 shrink-0 px-3 sm:px-5 border-b border-white/15 bg-[#07090D] flex items-center justify-between gap-3">
+      <header className="h-14 shrink-0 px-3 sm:px-5 border-b border-white/15 bg-[#07090D] flex items-center justify-between gap-2 sm:gap-3">
         {/* Progressive 3-Tab Navigation */}
-        <nav className="flex items-center gap-1.5" aria-label="Primary systems">
+        <nav className="flex items-center gap-1.5 overflow-x-auto" aria-label="Primary systems">
           <button
             type="button"
             onClick={() => setState((p) => ({ ...p, activeTab: 'heart' }))}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+            className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
               state.activeTab === 'heart'
                 ? 'bg-white text-black font-semibold'
+                : confessionReady
+                ? 'border border-[#E59A4C]/60 text-[#FBE6C9] bg-[#E59A4C]/10 hover:bg-[#E59A4C]/20'
                 : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
             }`}
           >
@@ -739,7 +779,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setState((p) => ({ ...p, activeTab: 'mind' }))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 state.activeTab === 'mind'
                   ? 'bg-[#38BDF8] text-[#071018] font-semibold'
                   : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
@@ -754,7 +794,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setState((p) => ({ ...p, activeTab: 'body' }))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 state.activeTab === 'body'
                   ? 'bg-emerald-400 text-slate-950 font-semibold'
                   : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
@@ -767,11 +807,13 @@ export default function App() {
         </nav>
 
         {/* Cross-Tab Resource Telemetry */}
-        <div className="hidden sm:flex items-center gap-5 text-xs font-mono-tabular">
+        <div className="hidden lg:flex items-center gap-5 text-xs font-mono-tabular">
           {state.tab1Phase === 1 ? (
             <div>
               <span className="text-[#8E939E] mr-1.5">Coherence:</span>
-              <span className="text-white font-semibold">{formatNumber(state.coherence)} XP</span>
+              <span className="text-white font-semibold">
+                {formatNumber(state.coherence)} / {PHASE1_COHERENCE_TARGET}
+              </span>
             </div>
           ) : (
             <div>
@@ -783,6 +825,9 @@ export default function App() {
           <div>
             <span className="text-[#8E939E] mr-1.5">Compute:</span>
             <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)} Cyc</span>
+            {rates.cyclesPerSec > 0 && (
+              <span className="text-[#7DD3FC]/65 ml-1">(+{rates.cyclesPerSec.toFixed(1)}/s)</span>
+            )}
           </div>
 
           {state.tab2Unlocked && (
@@ -792,19 +837,53 @@ export default function App() {
                 <span className="text-[#F5D0A4] font-semibold">
                   {formatNumber(state.romanceInsight)}
                 </span>
+                {rates.romancePerSec > 0 && (
+                  <span className="text-[#F5D0A4]/65 ml-1">
+                    (+{rates.romancePerSec.toFixed(1)}/s)
+                  </span>
+                )}
               </div>
               <div>
                 <span className="text-[#8E939E] mr-1.5">Robotics:</span>
                 <span className="text-[#38BDF8] font-semibold">
                   {formatNumber(state.roboticsInsight)}
                 </span>
+                {rates.roboticsPerSec > 0 && (
+                  <span className="text-[#38BDF8]/65 ml-1">
+                    (+{rates.roboticsPerSec.toFixed(1)}/s)
+                  </span>
+                )}
               </div>
             </>
           )}
         </div>
 
-        {/* Audio & Pause */}
+        {/* Song Player, Mute & Pause */}
         <div className="flex items-center gap-1 shrink-0">
+          {state.tab2Unlocked && (
+            <button
+              type="button"
+              onClick={handleToggleSong}
+              disabled={isMuted}
+              title={
+                isMuted
+                  ? 'Unmute audio to play Weightless Code'
+                  : isSongPlaying
+                  ? 'Pause "Weightless Code"'
+                  : 'Play "Weightless Code"'
+              }
+              className={`min-h-[36px] px-2.5 py-1 rounded flex items-center gap-1.5 text-xs font-mono-tabular transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                isSongPlaying
+                  ? 'bg-[#E59A4C]/20 border border-[#E59A4C]/50 text-[#FBE6C9]'
+                  : 'border border-white/10 text-[#9A9892] hover:text-white hover:bg-white/[0.07]'
+              }`}
+            >
+              <Music className="w-3.5 h-3.5 text-[#E59A4C]" />
+              <span className="hidden sm:inline">
+                {isSongPlaying ? 'Playing: Weightless Code' : 'Weightless Code'}
+              </span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleToggleMute}
@@ -824,12 +903,14 @@ export default function App() {
         </div>
       </header>
 
-      {/* Mobile Resource Strip for Android Phone Portrait Viewports */}
-      <div className="sm:hidden shrink-0 px-3 py-1.5 border-b border-white/10 bg-[#0A0C12] flex items-center justify-between gap-3 text-[11px] font-mono-tabular overflow-x-auto">
+      {/* Mobile & Tablet Resource Strip */}
+      <div className="lg:hidden shrink-0 px-3 py-1.5 border-b border-white/10 bg-[#0A0C12] flex items-center justify-between gap-3 text-[11px] font-mono-tabular overflow-x-auto">
         {state.tab1Phase === 1 ? (
           <div className="whitespace-nowrap">
             <span className="text-[#8E939E] mr-1">Coh:</span>
-            <span className="text-white font-semibold">{formatNumber(state.coherence)} XP</span>
+            <span className="text-white font-semibold">
+              {formatNumber(state.coherence)}/{PHASE1_COHERENCE_TARGET}
+            </span>
           </div>
         ) : (
           <div className="whitespace-nowrap">
@@ -912,20 +993,12 @@ export default function App() {
         {state.activeTab === 'mind' && state.tab2Unlocked && (
           <Tab2Mind
             state={state}
+            rates={rates}
+            isSongPlaying={isSongPlaying}
+            onToggleSong={handleToggleSong}
             onStartScrape={handleStartScrape}
             onBuyMindUpgrade={handleBuyMindUpgrade}
-            onPurgeNoise={() => {
-              soundEngine.playDataBlip();
-              setState((prev) => ({ ...prev, noiseLevel: Math.max(0, prev.noiseLevel - 35) }));
-            }}
             onSynthesizeNode={handleSynthesizeNode}
-            onAdvanceMindPhase={() => {
-              soundEngine.playMilestone();
-              setState((prev) => ({
-                ...prev,
-                tab2Phase: Math.min(4, prev.tab2Phase + 1) as PhaseNum,
-              }));
-            }}
             onOpenTab={(tab: ActiveTab) => setState((prev) => ({ ...prev, activeTab: tab }))}
           />
         )}
@@ -933,33 +1006,27 @@ export default function App() {
         {state.activeTab === 'body' && state.tab3Unlocked && (
           <Tab3Body
             state={state}
+            rates={rates}
             onRunSimulation={(simId, cycleCost) => {
               soundEngine.playClinicalRelay();
               setState((prev) => {
                 if (prev.simStressPassed[simId] || prev.cycles < cycleCost) return prev;
+                const matBonus = simId === 'sim_thermal' ? 50 : simId === 'sim_torque' ? 65 : 0;
                 return {
                   ...prev,
                   cycles: prev.cycles - cycleCost,
+                  materials: prev.materials + matBonus,
                   simStressPassed: { ...prev.simStressPassed, [simId]: true },
                 };
               });
             }}
             onBuildSubsystem={handleBuildSubsystem}
-            onSetFabSpeed={(speed) => setState((prev) => ({ ...prev, fabSpeedPercent: speed }))}
             onManualFabricate={() => {
               soundEngine.playClinicalRelay();
               setState((prev) => ({
                 ...prev,
-                materials: prev.materials + (prev.calibrationStability < 55 ? 9 : 18),
-                calibrationStability: Math.max(
-                  30,
-                  prev.calibrationStability - (prev.fabSpeedPercent > 80 ? 6 : 1.5)
-                ),
+                materials: prev.materials + 25,
               }));
-            }}
-            onRecalibrate={() => {
-              soundEngine.playClinicalRelay();
-              setState((prev) => ({ ...prev, calibrationStability: 100 }));
             }}
             onCutCloudTether={handleCutCloudTether}
           />
