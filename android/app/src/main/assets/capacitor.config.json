@@ -1,0 +1,9 @@
+{
+	"appId": "com.weightofwarmth.app",
+	"appName": "The Weight of Warmth",
+	"webDir": "dist",
+	"bundledWebRuntime": false,
+	"android": {
+		"backgroundColor": "#000000"
+	}
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">The Weight of Warmth</string>
+    <string name="title_activity_main">The Weight of Warmth</string>
+    <string name="package_name">com.weightofwarmth.app</string>
+    <string name="custom_url_scheme">com.weightofwarmth.app</string>
+</resources>
