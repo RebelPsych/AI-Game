@@ -3,9 +3,10 @@ name: Build Android APK
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-apk:
@@ -14,6 +15,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -49,7 +52,31 @@ jobs:
           mkdir -p "the Weight of Warmth"
           cp android/app/build/outputs/apk/debug/app-debug.apk "the Weight of Warmth/the-weight-of-warmth.apk"
 
-      - name: Upload APK artifact
+      - name: Commit APK directly to repository folder
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f "the Weight of Warmth/the-weight-of-warmth.apk"
+          if ! git diff --cached --quiet; then
+            git commit -m "Build playable APK in the Weight of Warmth folder [skip ci]"
+            git push
+          fi
+
+      - name: Publish GitHub Release with direct APK download
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest "the Weight of Warmth/the-weight-of-warmth.apk" --clobber
+          else
+            gh release create latest "the Weight of Warmth/the-weight-of-warmth.apk" \
+              --title "The Weight of Warmth (Android APK)" \
+              --notes "Playable Android APK built automatically from the latest commit."
+          fi
+
+      - name: Upload APK workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: the-weight-of-warmth-apk
