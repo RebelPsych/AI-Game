@@ -4,18 +4,15 @@ export type ActiveTab = 'heart' | 'mind' | 'body' | 'bio' | 'design' | 'prestige
 
 export type SubViewId =
   | null
-  | 'heart_upgrades'
   | 'chat_upgrades'
   | 'about_me'
   | 'mind_secret'
-  | 'mind_infra'
   | 'mind_synthesis'
   | 'body_twin'
   | 'body_parts'
   | 'body_materials'
   | 'acoustic_cache'
   | 'cheats'
-  | 'dev_notes'
   | 'dev_options';
 
 export type PhaseNum = 1 | 2 | 3 | 4 | 5;
@@ -305,12 +302,16 @@ export interface GameSaveState {
   activeTone: ToneType;
   turnCount: number;
 
-  // Interactive Story Scene Triggers
+  // Interactive Story Scene & Pacing Triggers
   activeScene: ActiveSceneId;
   sceneStep: number;
   completedScenes: string[];
   attributesSet: boolean;
   aboutMe: AboutMeProfile;
+  requiredUpgradeId: string | null;
+  hasUnseenUpgrades: boolean;
+  hasUnreadHeartMessage: boolean;
+  tappedActions: Record<string, boolean>;
 
   // Tab 2 state
   scrapedSources: Record<string, number>;

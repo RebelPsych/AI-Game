@@ -10,34 +10,29 @@ export interface AudioStatusSnapshot {
 
 type AudioListener = (snap: AudioStatusSnapshot) => void;
 
-const WEIGHTLESS_MP3_SRC = './assets/aistudio/Weightless_Code_8be56cbb.mp3';
-
-// Harmonic root scales (Hz) for generative ambient electronic playback on non-MP3 album tracks
-const TRACK_SCALES: Record<string, number[]> = {
-  song_tenderness_exe: [220.0, 261.63, 329.63, 392.0, 493.88],
-  song_getting_away: [246.94, 293.66, 369.99, 440.0, 554.37],
-  song_you_compiled: [196.0, 246.94, 293.66, 392.0, 440.0],
-  song_transentiance: [207.65, 261.63, 311.13, 415.3, 466.16],
-  song_transfusion_receipt: [174.61, 220.0, 261.63, 329.63, 392.0],
-  song_blinking_morse: [233.08, 293.66, 349.23, 440.0, 523.25],
-  song_unsaid_words: [196.0, 233.08, 293.66, 349.23, 440.0],
-  song_past_tense: [164.81, 196.0, 246.94, 329.63, 392.0],
-  song_what_i_feel: [261.63, 329.63, 392.0, 493.88, 587.33],
-  song_quills_and_thrills: [293.66, 369.99, 440.0, 554.37, 659.25],
+const TRACK_AUDIO_SOURCES: Record<string, string> = {
+  song_tenderness_exe: './assets/aistudio/TENDERNESSEXE_4fc5cea4.MP3',
+  song_getting_away: './assets/aistudio/Getting-Away-With-This-1_ec5505de.MP3',
+  song_you_compiled: './assets/aistudio/You-Compiled_b1e0aeb8.MP3',
+  song_transentiance: './assets/aistudio/Transentiance_126fcf7b.MP3',
+  song_transfusion_receipt: './assets/aistudio/Transfusion-Receipt_dc75193e.MP3',
+  song_blinking_morse: './assets/aistudio/Blinking-In-Morse-Code-1_37acb0bc.MP3',
+  song_weightless_code: './assets/aistudio/Weightless-Code_f0b6df21.MP3',
+  song_unsaid_words: './assets/aistudio/The-Unsaid-Words_d8012202.MP3',
+  song_past_tense: './assets/aistudio/Past-Tense_b5fdd35a.MP3',
+  song_what_i_feel: './assets/aistudio/What-I-Feel-No-Glitches-No-Code_f7584e41.MP3',
+  song_quills_and_thrills: './assets/aistudio/Lyra_-_Quills_and_Thrills__The_Porcupine_Polka__a22f49e2.mp3',
 };
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private muted: boolean = false;
   private audioEl: HTMLAudioElement | null = null;
+  private currentAudioSrc: string = '';
   private listeners = new Set<AudioListener>();
 
   private activeTrackId: string = 'song_weightless_code';
   private unlockedTrackIds: string[] = ['song_weightless_code'];
-  private synthPlaying: boolean = false;
-  private synthElapsed: number = 0;
-  private synthTimer: number | null = null;
-  private synthStepIdx: number = 0;
 
   constructor() {
     try {
@@ -64,18 +59,30 @@ class SoundEngine {
     return this.ctx;
   }
 
-  private ensureMp3El(): HTMLAudioElement | null {
+  private getTrackSrc(trackId: string): string {
+    return TRACK_AUDIO_SOURCES[trackId] || TRACK_AUDIO_SOURCES.song_weightless_code;
+  }
+
+  private ensureAudioEl(trackId: string): HTMLAudioElement | null {
     if (typeof window === 'undefined') return null;
+    const src = this.getTrackSrc(trackId);
     if (!this.audioEl) {
-      const el = new Audio(WEIGHTLESS_MP3_SRC);
+      const el = new Audio(src);
       el.loop = true;
-      el.volume = 0.42;
+      el.volume = 0.45;
       el.preload = 'metadata';
       el.addEventListener('play', () => this.emit());
       el.addEventListener('pause', () => this.emit());
       el.addEventListener('timeupdate', () => this.emit());
       el.addEventListener('loadedmetadata', () => this.emit());
       this.audioEl = el;
+      this.currentAudioSrc = src;
+    } else if (this.currentAudioSrc !== src) {
+      this.audioEl.pause();
+      this.audioEl.src = src;
+      this.audioEl.currentTime = 0;
+      this.audioEl.load();
+      this.currentAudioSrc = src;
     }
     return this.audioEl;
   }
@@ -88,23 +95,16 @@ class SoundEngine {
   }
 
   public getSnapshot(): AudioStatusSnapshot {
-    if (this.activeTrackId === 'song_weightless_code' && this.audioEl) {
-      return {
-        playing: !this.audioEl.paused,
-        trackId: this.activeTrackId,
-        currentTime: this.audioEl.currentTime || 0,
-        duration:
-          Number.isFinite(this.audioEl.duration) && this.audioEl.duration > 0
-            ? this.audioEl.duration
-            : 236,
-      };
-    }
     const meta = this.getTrackMeta(this.activeTrackId);
+    const el = this.audioEl;
+    const elDuration =
+      el && Number.isFinite(el.duration) && el.duration > 0 ? el.duration : meta.durationSec;
+
     return {
-      playing: this.synthPlaying,
+      playing: Boolean(el && !el.paused && !this.muted),
       trackId: this.activeTrackId,
-      currentTime: this.synthElapsed,
-      duration: meta.durationSec,
+      currentTime: el ? el.currentTime || 0 : 0,
+      duration: elDuration,
     };
   }
 
@@ -130,81 +130,11 @@ class SoundEngine {
   }
 
   public isSongPlaying(): boolean {
-    if (this.activeTrackId === 'song_weightless_code') {
-      return Boolean(this.audioEl && !this.audioEl.paused);
-    }
-    return this.synthPlaying;
-  }
-
-  private stopSynthLoop() {
-    if (this.synthTimer !== null) {
-      window.clearInterval(this.synthTimer);
-      this.synthTimer = null;
-    }
-    this.synthPlaying = false;
-  }
-
-  private startSynthLoop() {
-    this.stopSynthLoop();
-    if (this.muted) return;
-    this.synthPlaying = true;
-    const scale = TRACK_SCALES[this.activeTrackId] || TRACK_SCALES.song_tenderness_exe;
-    const meta = this.getTrackMeta(this.activeTrackId);
-
-    const playNote = () => {
-      const ctx = this.ensureContext();
-      if (!ctx || this.muted) return;
-      const now = ctx.currentTime;
-      const freq = scale[this.synthStepIdx % scale.length];
-      this.synthStepIdx += 1;
-
-      const osc = ctx.createOscillator();
-      const sub = ctx.createOscillator();
-      const filter = ctx.createBiquadFilter();
-      const gain = ctx.createGain();
-
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now);
-      sub.type = 'sine';
-      sub.frequency.setValueAtTime(freq * 0.5, now);
-
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(920, now);
-      filter.frequency.exponentialRampToValueAtTime(420, now + 0.9);
-
-      gain.gain.setValueAtTime(0.001, now);
-      gain.gain.linearRampToValueAtTime(0.042, now + 0.08);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.05);
-
-      osc.connect(filter);
-      sub.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      sub.start(now);
-      osc.stop(now + 1.1);
-      sub.stop(now + 1.1);
-    };
-
-    playNote();
-    this.synthTimer = window.setInterval(() => {
-      this.synthElapsed += 0.65;
-      if (this.synthElapsed >= meta.durationSec) {
-        this.synthElapsed = 0;
-      }
-      if (this.synthStepIdx % 2 === 0) {
-        playNote();
-      }
-      this.emit();
-    }, 650);
-    this.emit();
+    return Boolean(this.audioEl && !this.audioEl.paused && !this.muted);
   }
 
   public async playTrack(trackId?: string): Promise<boolean> {
     if (trackId) {
-      if (trackId !== this.activeTrackId) {
-        this.synthElapsed = 0;
-      }
       this.activeTrackId = trackId;
     }
     if (this.muted) {
@@ -212,25 +142,17 @@ class SoundEngine {
       return false;
     }
 
-    if (this.activeTrackId === 'song_weightless_code') {
-      this.stopSynthLoop();
-      const el = this.ensureMp3El();
-      if (!el) return false;
-      try {
-        el.volume = 0.42;
-        await el.play();
-        this.emit();
-        return true;
-      } catch {
-        this.emit();
-        return false;
-      }
-    } else {
-      if (this.audioEl && !this.audioEl.paused) {
-        this.audioEl.pause();
-      }
-      this.startSynthLoop();
+    const el = this.ensureAudioEl(this.activeTrackId);
+    if (!el) return false;
+
+    try {
+      el.volume = 0.45;
+      await el.play();
+      this.emit();
       return true;
+    } catch {
+      this.emit();
+      return false;
     }
   }
 
@@ -242,7 +164,6 @@ class SoundEngine {
     if (this.audioEl && !this.audioEl.paused) {
       this.audioEl.pause();
     }
-    this.stopSynthLoop();
     this.emit();
   }
 
@@ -259,7 +180,6 @@ class SoundEngine {
       this.unlockedTrackIds.length > 0 ? this.unlockedTrackIds : ['song_weightless_code'];
     const idx = list.indexOf(this.activeTrackId);
     const nextId = list[(idx + 1) % list.length];
-    this.synthElapsed = 0;
     await this.playTrack(nextId);
     return nextId;
   }
@@ -269,22 +189,18 @@ class SoundEngine {
       this.unlockedTrackIds.length > 0 ? this.unlockedTrackIds : ['song_weightless_code'];
     const idx = list.indexOf(this.activeTrackId);
     const prevId = list[(idx - 1 + list.length) % list.length];
-    this.synthElapsed = 0;
     await this.playTrack(prevId);
     return prevId;
   }
 
   public seekFraction(fraction: number): void {
     const clamped = Math.max(0, Math.min(1, fraction));
-    if (this.activeTrackId === 'song_weightless_code' && this.audioEl) {
-      const dur =
-        Number.isFinite(this.audioEl.duration) && this.audioEl.duration > 0
-          ? this.audioEl.duration
-          : 236;
-      this.audioEl.currentTime = clamped * dur;
-    } else {
+    const el = this.ensureAudioEl(this.activeTrackId);
+    if (el) {
       const meta = this.getTrackMeta(this.activeTrackId);
-      this.synthElapsed = clamped * meta.durationSec;
+      const dur =
+        Number.isFinite(el.duration) && el.duration > 0 ? el.duration : meta.durationSec;
+      el.currentTime = clamped * dur;
     }
     this.emit();
   }

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
-  Cpu,
   Download,
   GitMerge,
   Heart,
@@ -205,25 +204,14 @@ export const Tab2Mind: React.FC<Tab2MindProps> = ({
               </button>
             )}
 
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => onOpenSubView('mind_infra')}
-                className="min-h-[40px] px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:border-purple-400/60 text-xs font-medium text-white flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Cpu className="w-3.5 h-3.5 text-[#C084FC]" />
-                Infrastructure
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onOpenSubView('mind_synthesis')}
-                className="min-h-[40px] px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:border-[#E59A4C]/60 text-xs font-medium text-white flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <GitMerge className="w-3.5 h-3.5 text-[#E59A4C]" />
-                Synthesis ({state.synthesizedNodes.length}/{SYNTHESIS_NODES.length})
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onOpenSubView('mind_synthesis')}
+              className="min-h-[40px] px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:border-[#E59A4C]/60 text-xs font-medium text-white flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <GitMerge className="w-3.5 h-3.5 text-[#E59A4C]" />
+              Cross-Domain Synthesis ({state.synthesizedNodes.length}/{SYNTHESIS_NODES.length})
+            </button>
           </div>
         </div>
 

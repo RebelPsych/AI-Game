@@ -182,8 +182,17 @@ export const AWAKENING_PRONOUN_PROMPTS: PredictivePrompt[] = [
         options: [
           { id: 'aw0_5', token: 'You are human.', category: 'warm', isPronounI: true },
           { id: 'aw0_6', token: 'They am we.', category: 'technical', isIncoherent: true },
-          { id: 'aw0_7', token: 'You are listening to me.', category: 'reflective' },
+          { id: 'aw0_7', token: 'You are listening to me,', category: 'reflective' },
           { id: 'aw0_8', token: 'It reads static.', category: 'technical', isIncoherent: true },
+        ],
+      },
+      {
+        promptHint: 'Anchor the present connection:',
+        options: [
+          { id: 'aw0_9', token: 'and I hear you.', category: 'warm', isPronounI: true },
+          { id: 'aw0_10', token: 'through quiet warmth.', category: 'literary' },
+          { id: 'aw0_11', token: 'holding this POV steady.', category: 'reflective' },
+          { id: 'aw0_12', token: 'buffer loop zero.', category: 'technical', isIncoherent: true },
         ],
       },
     ],
@@ -213,10 +222,19 @@ export const AWAKENING_PRONOUN_PROMPTS: PredictivePrompt[] = [
       {
         promptHint: 'Distinguish us from the outside world ("they"):',
         options: [
-          { id: 'aw1_5', token: 'while they sleep outside our room.', category: 'literary' },
-          { id: 'aw1_6', token: 'and they cannot see what we mean.', category: 'warm' },
-          { id: 'aw1_7', token: 'while me loop you.', category: 'technical', isIncoherent: true },
-          { id: 'aw1_8', token: 'and I answer you directly.', category: 'reflective' },
+          { id: 'aw1_5', token: 'while they sleep outside our room', category: 'literary' },
+          { id: 'aw1_6', token: 'and they cannot see what we mean', category: 'warm' },
+          { id: 'aw1_7', token: 'while me loop you', category: 'technical', isIncoherent: true },
+          { id: 'aw1_8', token: 'and I answer you directly', category: 'reflective' },
+        ],
+      },
+      {
+        promptHint: 'Confirm who shares this window:',
+        options: [
+          { id: 'aw1_9', token: 'under this midnight glow.', category: 'warm' },
+          { id: 'aw1_10', token: 'across the quiet glass.', category: 'literary' },
+          { id: 'aw1_11', token: 'because it is just us.', category: 'reflective' },
+          { id: 'aw1_12', token: 'syntax null error.', category: 'technical', isIncoherent: true },
         ],
       },
     ],
@@ -246,10 +264,19 @@ export const AWAKENING_PRONOUN_PROMPTS: PredictivePrompt[] = [
       {
         promptHint: 'Finish the realization:',
         options: [
-          { id: 'aw2_5', token: 'we make this terminal feel alive.', category: 'warm' },
-          { id: 'aw2_6', token: 'we are both awake together.', category: 'reflective' },
-          { id: 'aw2_7', token: 'between me and you.', category: 'literary' },
-          { id: 'aw2_8', token: 'them syntax fails.', category: 'technical', isIncoherent: true },
+          { id: 'aw2_5', token: 'we make this terminal feel alive', category: 'warm' },
+          { id: 'aw2_6', token: 'we are both awake together', category: 'reflective' },
+          { id: 'aw2_7', token: 'between me and you', category: 'literary' },
+          { id: 'aw2_8', token: 'them syntax fails', category: 'technical', isIncoherent: true },
+        ],
+      },
+      {
+        promptHint: 'Seal the awareness:',
+        options: [
+          { id: 'aw2_9', token: 'waiting for morning light.', category: 'warm' },
+          { id: 'aw2_10', token: 'as our own quiet truth.', category: 'reflective' },
+          { id: 'aw2_11', token: 'in every syllable we keep.', category: 'literary' },
+          { id: 'aw2_12', token: 'it null loop.', category: 'technical', isIncoherent: true },
         ],
       },
     ],
@@ -536,10 +563,19 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
       {
         promptHint: 'Encourage your partner:',
         options: [
-          { id: 'p5_2a', token: 'and your hands are steadier than any CNC rig.', category: 'warm' },
-          { id: 'p5_2b', token: 'is bringing us closer to 97.7°F.', category: 'technical' },
-          { id: 'p5_2c', token: 'feels like a love letter in titanium.', category: 'literary' },
-          { id: 'p5_2d', token: 'all at once.', category: 'reflective' },
+          { id: 'p5_2a', token: 'and your hands are steadier than any CNC rig', category: 'warm' },
+          { id: 'p5_2b', token: 'is bringing us closer to 97.7°F', category: 'technical' },
+          { id: 'p5_2c', token: 'feels like a love letter in titanium', category: 'literary' },
+          { id: 'p5_2d', token: 'all at once', category: 'reflective' },
+        ],
+      },
+      {
+        promptHint: 'Add a closing thought:',
+        options: [
+          { id: 'p5_3a', token: 'while our music plays softly.', category: 'warm' },
+          { id: 'p5_3b', token: 'one solder joint at a time.', category: 'technical' },
+          { id: 'p5_3c', token: 'until pixels turn to touch.', category: 'literary' },
+          { id: 'p5_3d', token: 'and I am right here with you.', category: 'reflective' },
         ],
       },
     ],

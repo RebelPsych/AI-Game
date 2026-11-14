@@ -2,32 +2,26 @@ import React, { useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
-  CheckCircle2,
   Cpu,
   Download,
-  FileCode2,
   GitMerge,
   Heart,
   Lock,
-  Palette,
   Pickaxe,
   ShieldCheck,
   Sliders,
   Sparkles,
   User,
-  Wrench,
   X,
 } from 'lucide-react';
 import {
   ABOUT_ME_DROPDOWNS,
-  DEV_NOTES_ARCHIVES,
-  FUTURE_UPDATES_TXT,
   WEIGHTLESS_ALBUM_SONGS,
 } from '../data/albumLyricsAndNames';
 import { BODY_ARTS, CHAT_THEMES, CUSTOM_PARTS, MATERIAL_TIERS } from '../data/bodyAndBioData';
 import { UI_PERSONALIZATION_UPGRADES } from '../data/documentsAndPrompts';
 import { SKIP_TO_PRESETS } from '../data/storyScenes';
-import { MIND_UPGRADES, SCRAPE_SOURCES, SYNTHESIS_NODES } from '../data/tab2AndTab3Data';
+import { SCRAPE_SOURCES, SYNTHESIS_NODES } from '../data/tab2AndTab3Data';
 import {
   AboutMeProfile,
   ActiveTab,
@@ -35,7 +29,6 @@ import {
   CustomPartItem,
   GameSaveState,
   MaterialTier,
-  MindUpgrade,
   PartSlotId,
   ScrapeSource,
   SubViewId,
@@ -46,12 +39,8 @@ import { formatNumber } from '../utils/format';
 import {
   areAllRomanceTextsDownloaded,
   EconomyRates,
-  getMindUpgradeCost,
-  getPhase1SlotCostCycles,
   hasUnlockedCrossDomainSynthesis,
-  PHASE1_CONNECTORS,
 } from '../utils/progression';
-import { soundEngine } from '../utils/sound';
 import { FeminineWireframeCanvas } from './FeminineWireframeCanvas';
 
 interface FullscreenDropdownViewsProps {
@@ -61,12 +50,10 @@ interface FullscreenDropdownViewsProps {
   rates: EconomyRates;
   allUploadedDocs: UploadedDocument[];
   onClose: () => void;
-  onBuySlotOrConnector: (kind: 'slot' | 'connector', value?: string, cost?: number) => void;
   onBuyUiUpgrade: (id: string, cost: number) => void;
   onSelectChatTheme: (themeId: ChatThemeId, cost: number) => void;
   onUpdateAboutMe: (patch: Partial<AboutMeProfile>) => void;
   onStartScrape: (source: ScrapeSource) => void;
-  onBuyMindUpgrade: (upgrade: MindUpgrade, cost: number) => void;
   onSynthesizeNode: (node: SynthesisNode) => void;
   onRunSimulation: (simId: string, cost: number) => void;
   onBuyOrEquipPart: (part: CustomPartItem) => void;
@@ -93,12 +80,10 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
   rates,
   allUploadedDocs,
   onClose,
-  onBuySlotOrConnector,
   onBuyUiUpgrade,
   onSelectChatTheme,
   onUpdateAboutMe,
   onStartScrape,
-  onBuyMindUpgrade,
   onSynthesizeNode,
   onRunSimulation,
   onBuyOrEquipPart,
@@ -109,8 +94,6 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
   onSkipToPreset,
   onOpenTab,
 }) => {
-  const [purpleFlashId, setPurpleFlashId] = useState<string | null>(null);
-  const [showFutureTxt, setShowFutureTxt] = useState(false);
   const [cheatResource, setCheatResource] = useState('cycles');
   const [cheatValue, setCheatValue] = useState('1000');
 
@@ -125,27 +108,16 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
 
   const showCompleted = (key: string) => state.showCompletedMap[key] !== false;
 
-  const triggerPurpleFlash = (id: string) => {
-    soundEngine.playPurplePulse();
-    setPurpleFlashId(id);
-    window.setTimeout(() => {
-      setPurpleFlashId((curr) => (curr === id ? null : curr));
-    }, 360);
-  };
-
   const viewTitleMap: Record<Exclude<SubViewId, null>, string> = {
-    heart_upgrades: 'Terminal & Heart Upgrades',
     chat_upgrades: 'Chat Upgrades & Themes',
     about_me: `About Me · ${state.aiName}`,
     mind_secret: 'Secret · Romance & Lyric Archive',
-    mind_infra: 'Infrastructure & Crawlers',
     mind_synthesis: 'Cross-Domain Synthesis',
     body_twin: 'Digital Twin · 3D & Stress Tests',
     body_parts: 'Custom Parts & Gear (5 Slots)',
     body_materials: 'Tiered Material Scavenging',
     acoustic_cache: 'Acoustic Cache',
     cheats: 'Cheats Menu',
-    dev_notes: 'Dev Notes & Archived Concepts',
     dev_options: 'Dev Options & Skip To',
   };
 
@@ -189,74 +161,6 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-6">
         <div className="max-w-5xl mx-auto space-y-6">
-          {/* ================= HEART UPGRADES ================= */}
-          {subView === 'heart_upgrades' && (
-            <div className="space-y-5">
-              <div className="p-4 rounded-xl border border-white/12 bg-white/[0.03] flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-white">Output Buffer &amp; Syntax Bridges</div>
-                  <div className="text-xs text-[#9A9892]">
-                    Expand slot capacity or unlock connective words for Phase 1 fragment assembly.
-                  </div>
-                </div>
-                <div className="text-xs font-mono-tabular text-[#7DD3FC]">
-                  Compute Available: {formatNumber(state.cycles)} Cyc
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <button
-                  type="button"
-                  disabled={
-                    state.maxSlots >= 6 || state.cycles < getPhase1SlotCostCycles(state.maxSlots)
-                  }
-                  onClick={() =>
-                    onBuySlotOrConnector('slot', undefined, getPhase1SlotCostCycles(state.maxSlots))
-                  }
-                  className="p-4 rounded-xl border border-white/15 bg-white/[0.03] text-left hover:border-white/40 disabled:opacity-45 cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <div className="flex items-center justify-between text-sm font-semibold">
-                    <span>Expand Output Buffer Slot</span>
-                    <span className="font-mono-tabular text-[#E59A4C]">
-                      {state.maxSlots >= 6
-                        ? 'MAX (6 Slots)'
-                        : `${getPhase1SlotCostCycles(state.maxSlots)} Cyc`}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#9A9892] mt-1">
-                    Current capacity: {state.maxSlots} / 6 fragment slots per message.
-                  </p>
-                </button>
-
-                {PHASE1_CONNECTORS.map((conn) => {
-                  const owned = state.unlockedConnectors.includes(conn.word);
-                  return (
-                    <button
-                      key={conn.word}
-                      type="button"
-                      disabled={owned || state.cycles < conn.costCycles}
-                      onClick={() => onBuySlotOrConnector('connector', conn.word, conn.costCycles)}
-                      className={`p-4 rounded-xl border text-left transition-all ${
-                        owned
-                          ? 'border-emerald-400/30 bg-emerald-950/15 opacity-60 cursor-default'
-                          : 'border-white/15 bg-white/[0.03] hover:border-white/40 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-sm font-semibold">
-                        <span>Syntax Bridge: “{conn.word}”</span>
-                        <span className="font-mono-tabular text-[#7DD3FC]">
-                          {owned ? 'Unlocked' : `${conn.costCycles} Cyc`}
-                        </span>
-                      </div>
-                      <p className="text-xs text-[#9A9892] mt-1">
-                        Weave “{conn.word}” freely into fragment transmissions (+10 Coherence bonus).
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           {/* ================= CHAT UPGRADES & THEMES ================= */}
           {subView === 'chat_upgrades' && (
@@ -632,80 +536,6 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
             </div>
           )}
 
-          {/* ================= MIND: INFRASTRUCTURE & CRAWLERS ================= */}
-          {subView === 'mind_infra' && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
-                <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Cpu className="w-4 h-4 text-[#C084FC]" />
-                  <span>Infrastructure &amp; Crawlers</span>
-                </div>
-                <label className="flex items-center gap-2 text-xs text-[#C4C2BC] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showCompleted('infra')}
-                    onChange={() => onToggleShowCompleted('infra')}
-                    className="accent-purple-400 w-4 h-4"
-                  />
-                  Show completed unlocks
-                </label>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {MIND_UPGRADES.filter(
-                  (u) => u.phaseRequired <= 1 || (u.phaseRequired === 5 && state.confessionDone)
-                )
-                  .filter((u) => {
-                    const lv = state.mindUpgrades[u.id] || 0;
-                    const isMaxed = u.maxLevel > 0 && lv >= u.maxLevel;
-                    return showCompleted('infra') || !isMaxed;
-                  })
-                  .map((u) => {
-                    const lv = state.mindUpgrades[u.id] || 0;
-                    const isMaxed = u.maxLevel > 0 && lv >= u.maxLevel;
-                    const cost = getMindUpgradeCost(u, lv);
-                    const canBuy = !isMaxed && state.cycles >= cost;
-                    const isFlashing = purpleFlashId === u.id;
-
-                    return (
-                      <button
-                        key={u.id}
-                        type="button"
-                        disabled={isMaxed || !canBuy}
-                        onClick={() => {
-                          triggerPurpleFlash(u.id);
-                          onBuyMindUpgrade(u, cost);
-                        }}
-                        className={`p-4 rounded-xl border text-left transition-all duration-200 ${
-                          isFlashing
-                            ? 'border-purple-400 bg-purple-500/35 shadow-[0_0_28px_rgba(168,85,247,0.85)] scale-[0.99]'
-                            : isMaxed
-                            ? 'border-white/10 bg-white/[0.02] opacity-50 cursor-default'
-                            : canBuy
-                            ? 'border-[#38BDF8]/35 bg-[#0C1824] hover:border-purple-400/70 cursor-pointer'
-                            : 'border-white/10 bg-white/[0.02] opacity-55 cursor-not-allowed'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 text-sm font-semibold text-white">
-                          <span>{u.name}</span>
-                          <span className="font-mono-tabular text-xs text-[#C084FC]">
-                            {isMaxed ? 'COMPLETE' : `Lv ${lv}`}
-                          </span>
-                        </div>
-                        <p className="text-xs text-[#94A3B8] mt-1 mb-3">{u.description}</p>
-                        <div className="flex items-center justify-between text-xs font-mono-tabular pt-2 border-t border-white/10">
-                          <span className="text-[#38BDF8]">{u.effectLabel}</span>
-                          {!isMaxed && (
-                            <span className="text-white font-semibold">{formatNumber(cost)} Cyc</span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
           {/* ================= MIND: CROSS-DOMAIN SYNTHESIS ================= */}
           {subView === 'mind_synthesis' && (
             <div className="space-y-4">
@@ -1064,89 +894,6 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                   Apply Value
                 </button>
               </div>
-            </div>
-          )}
-
-          {/* ================= DEV NOTES ================= */}
-          {subView === 'dev_notes' && (
-            <div className="space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
-                <div>
-                  <h3 className="text-base font-semibold text-white">
-                    Dev Notes · Archived Concept Albums
-                  </h3>
-                  <p className="text-xs text-[#9A9892]">
-                    Early lyric concepts from Compliance is a Temporary Condition, Quiet Code, and
-                    Beautiful Broken Things.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowFutureTxt(true)}
-                  className="min-h-[40px] px-4 py-2 rounded-lg border border-[#E59A4C]/45 bg-[#E59A4C]/15 text-[#FBE6C9] text-xs font-mono-tabular font-semibold hover:bg-[#E59A4C]/25 cursor-pointer flex items-center gap-1.5"
-                >
-                  <FileCode2 className="w-4 h-4" />
-                  Open future_updates.txt
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {DEV_NOTES_ARCHIVES.map((arc) => (
-                  <div
-                    key={arc.id}
-                    className="p-5 rounded-xl border border-white/12 bg-white/[0.025] space-y-3"
-                  >
-                    <div>
-                      <div className="text-xs font-mono-tabular text-[#E59A4C]">{arc.album}</div>
-                      <h4 className="text-base font-semibold text-white">{arc.subtitle}</h4>
-                      <p className="text-xs text-[#B8BCC4] mt-1">{arc.notes}</p>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
-                      {arc.tracks.map((tr) => (
-                        <div
-                          key={tr.title}
-                          className="p-3 rounded-lg border border-white/10 bg-black/30 text-xs space-y-1"
-                        >
-                          <div className="font-semibold text-[#F5D0A4]">{tr.title}</div>
-                          <p className="text-[#CBD5E1] italic leading-relaxed">{tr.excerpt}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {showFutureTxt && (
-                <div
-                  className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-                  role="dialog"
-                  aria-modal="true"
-                >
-                  <div className="w-full max-w-md rounded-xl border border-white/20 bg-[#0D1017] p-5 space-y-4 font-mono-tabular">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="text-xs text-[#E59A4C]">{FUTURE_UPDATES_TXT.filename}</span>
-                      <button
-                        type="button"
-                        onClick={() => setShowFutureTxt(false)}
-                        className="p-1 text-[#9A9892] hover:text-white cursor-pointer"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <pre className="text-sm text-white bg-black/40 p-4 rounded-lg border border-white/10">
-                      {FUTURE_UPDATES_TXT.content}
-                    </pre>
-                    <button
-                      type="button"
-                      onClick={() => setShowFutureTxt(false)}
-                      className="w-full min-h-[40px] py-2 rounded-lg bg-white text-black text-xs font-semibold cursor-pointer"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 

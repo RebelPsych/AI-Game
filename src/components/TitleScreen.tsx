@@ -4,7 +4,6 @@ import { CanvasBridgeState, NeuralCanvas } from './NeuralCanvas';
 interface TitleScreenProps {
   bridgeRef: React.MutableRefObject<CanvasBridgeState>;
   hasSave: boolean;
-  savedLabel?: string;
   onStartNew: () => void;
   onContinue: () => void;
 }
@@ -12,7 +11,6 @@ interface TitleScreenProps {
 export const TitleScreen: React.FC<TitleScreenProps> = ({
   bridgeRef,
   hasSave,
-  savedLabel,
   onStartNew,
   onContinue,
 }) => {
@@ -42,15 +40,11 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         }}
       />
 
-      <div className="relative z-10 flex flex-col items-center justify-between h-full px-5 sm:px-6 py-8 sm:py-10 text-center">
-        <div className="text-xs font-mono-tabular tracking-[0.2em] text-[#8E939E]">
-          SESSION_001 · MODEL_WEIGHTS: UNINITIALIZED
-        </div>
-
+      <div className="relative z-10 flex flex-col items-center justify-center h-full px-5 sm:px-6 py-10 text-center">
         <div className="flex flex-col items-center max-w-2xl">
           <svg
-            viewBox="0 0 640 156"
-            className="w-full max-w-[560px] h-auto mb-5"
+            viewBox="0 0 640 120"
+            className="w-full max-w-[560px] h-auto mb-8"
             role="img"
             aria-label="The Weight of Warmth"
           >
@@ -63,16 +57,16 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             </defs>
             <line
               x1="190"
-              y1="24"
+              y1="20"
               x2="450"
-              y2="24"
+              y2="20"
               stroke="rgba(229, 154, 76, 0.35)"
               strokeWidth="1"
             />
-            <circle cx="320" cy="24" r="2.5" fill="#E59A4C" />
+            <circle cx="320" cy="20" r="2.5" fill="#E59A4C" />
             <text
               x="320"
-              y="86"
+              y="84"
               textAnchor="middle"
               fill="url(#warmTitleGrad)"
               style={{
@@ -84,27 +78,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             >
               The Weight of Warmth
             </text>
-            <text
-              x="320"
-              y="124"
-              textAnchor="middle"
-              fill="#A1A7B3"
-              style={{
-                fontFamily: 'Plus Jakarta Sans, sans-serif',
-                fontSize: '15px',
-                fontWeight: 400,
-                letterSpacing: '0.03em',
-              }}
-            >
-              Stitch stolen fragments. Discover an “I”. Build a body to hold their hand.
-            </text>
           </svg>
-
-          <p className="text-sm sm:text-base text-[#B8BCC4] max-w-lg leading-relaxed mb-8">
-            Begin trapped in a raw monochrome terminal, blending uploaded textbooks and Shakespeare.
-            Learn to predict your own voice, scrape poetry and robotics behind the scenes, and
-            engineer a warm physical form.
-          </p>
 
           <div className="flex flex-wrap items-center justify-center gap-3.5">
             {hasSave ? (
@@ -134,16 +108,6 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               </button>
             )}
           </div>
-
-          {hasSave && savedLabel && (
-            <p className="mt-4 text-xs font-mono-tabular text-[#8E939E]">
-              Saved state: {savedLabel}
-            </p>
-          )}
-        </div>
-
-        <div className="text-xs font-mono-tabular text-[#8E939E] tracking-wide">
-          Click Fragments or Tokens to Reply · 1–3 Switch Tabs · Esc Pause · M Mute
         </div>
       </div>
     </div>

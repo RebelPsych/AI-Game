@@ -68,7 +68,7 @@ jobs:
           git add -f test/test.apk
           if ! git diff --cached --quiet; then
             git commit -m "Build playable Android APK in test/test.apk [skip ci]"
-            git pull --rebase || true
+            git pull --rebase -X theirs || true
             git push
           fi
 
