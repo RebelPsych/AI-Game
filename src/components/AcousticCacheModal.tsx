@@ -87,11 +87,6 @@ export const AcousticCacheModal: React.FC<AcousticCacheModalProps> = ({
                 <h3 className="font-display text-2xl font-semibold text-[#FBE6C9] mt-0.5">
                   {activeTrack.title}
                 </h3>
-                {isMuted && (
-                  <div className="text-xs text-[#FB7185] mt-1">
-                    Audio muted — unmute from Play menu to hear playback
-                  </div>
-                )}
               </div>
 
               {/* Interactive Progress Bar */}
@@ -124,9 +119,8 @@ export const AcousticCacheModal: React.FC<AcousticCacheModalProps> = ({
                 <button
                   type="button"
                   onClick={onTogglePlay}
-                  disabled={isMuted}
                   aria-label={audioStatus.playing ? 'Pause track' : 'Play track'}
-                  className="min-w-[54px] min-h-[54px] rounded-full bg-[#E59A4C] text-[#0B0D12] flex items-center justify-center hover:bg-[#EDA85F] disabled:opacity-40 cursor-pointer"
+                  className="min-w-[54px] min-h-[54px] rounded-full bg-[#E59A4C] text-[#0B0D12] flex items-center justify-center hover:bg-[#EDA85F] cursor-pointer"
                 >
                   {audioStatus.playing ? (
                     <Pause className="w-5 h-5" />

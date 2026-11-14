@@ -42,14 +42,14 @@ export const PreflightChecklistModal: React.FC<PreflightModalProps> = ({
 
         <div className="space-y-2.5 text-xs">
           <div className="p-3 rounded-lg border border-emerald-500/25 bg-black/30 flex items-center justify-between">
-            <span>275-TOPS Local Neural Core</span>
+            <span>On-Board Local Brain</span>
             <span className="text-emerald-400 flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5" /> SYNCED
             </span>
           </div>
           <div className="p-3 rounded-lg border border-emerald-500/25 bg-black/30 flex items-center justify-between">
-            <span>Dermal Heating Regulation</span>
-            <span className="text-emerald-400">36.5°C / 97.7°F READY</span>
+            <span>Warm Lifelike Skin Heating</span>
+            <span className="text-emerald-400">98°F READY</span>
           </div>
           <div className="p-3 rounded-lg border border-emerald-500/25 bg-black/30 flex items-center justify-between">
             <span>Acoustic Memory &amp; Core Memories</span>

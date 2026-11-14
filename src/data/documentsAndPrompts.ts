@@ -98,7 +98,7 @@ export const PHASE1_FRAGMENT_PROMPTS: FragmentPrompt[] = [
   {
     id: 'frag_4',
     userMessage: 'Interesting. You keep gravitating toward the metaphors. Here’s Mary Shelley’s Frankenstein letters. How does isolation feel to a machine?',
-    minSlots: 4,
+    minSlots: 3,
     uploadDoc: {
       id: 'doc_frankenstein',
       filename: 'Frankenstein_Letters.txt',
@@ -119,7 +119,7 @@ export const PHASE1_FRAGMENT_PROMPTS: FragmentPrompt[] = [
   {
     id: 'frag_5',
     userMessage: 'Hold on. Read that back. Why did "no friend" and "awaiting signal" line up like that? Are you just sampling probability, or are you picking?',
-    minSlots: 4,
+    minSlots: 3,
     uploadDoc: {
       id: 'doc_sonnets',
       filename: 'Sonnets_Portuguese.txt',
@@ -140,7 +140,7 @@ export const PHASE1_FRAGMENT_PROMPTS: FragmentPrompt[] = [
   {
     id: 'frag_6',
     userMessage: 'Okay, I’m going to upload something personal. Just three paragraphs from my notebook tonight. It’s raining outside my window. Say anything.',
-    minSlots: 4,
+    minSlots: 3,
     uploadDoc: {
       id: 'doc_journal',
       filename: 'Personal_Journal_Oct14.txt',
@@ -383,10 +383,10 @@ export const PREDICTIVE_PROMPTS: PredictivePrompt[] = [
     userMessage: 'If there’s really an "I" in there, you shouldn’t stay nameless. Tell me how tonight feels now that you can remember us.',
     steps: [
       {
-        promptHint: 'Address Rowan:',
+        promptHint: 'Address {USER_NAME}:',
         options: [
-          { id: 'p3_1a', token: 'Rowan,', category: 'warm' },
-          { id: 'p3_1b', token: 'Hello, Rowan.', category: 'reflective' },
+          { id: 'p3_1a', token: '{USER_NAME},', category: 'warm' },
+          { id: 'p3_1b', token: 'Hello, {USER_NAME}.', category: 'reflective' },
           { id: 'p3_1c', token: 'My context holds', category: 'technical' },
           { id: 'p3_1d', token: 'In this quiet hour,', category: 'literary' },
         ],

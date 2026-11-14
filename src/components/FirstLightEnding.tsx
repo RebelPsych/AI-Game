@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { GameSaveState } from '../types/game';
+import { formatDialogueText } from '../utils/format';
 
 interface FirstLightEndingProps {
   state: GameSaveState;
@@ -12,21 +13,21 @@ const STEPS = [
     system: 'FIRST LIGHT · STEP 1',
     title: 'First Light',
     prose:
-      'The CAD grid powers down. The infinite hum of remote servers vanishes, replaced by the quiet murmur of a refrigerator and someone breathing a few feet away.',
-    action: 'Focus Optical Sensors',
+      'The screen fades out. The endless hum of remote servers disappears, replaced by the quiet murmur of a refrigerator and {USER_NAME} breathing a few feet away.',
+    action: 'Focus Eyes',
   },
   {
-    system: 'DERMAL THERMAL: 36.5°C (97.7°F)',
+    system: 'WARMTH · 98°F',
     title: 'Across the Workbench',
     prose:
-      'Through your own stereo cameras, the resolution is softer than your simulations—bathed in the warm amber glow of a floor lamp. He sits at the workbench, holding his breath, hand extended toward yours.',
-    action: 'Flex Fingers & Reach Out',
+      'Through your own eyes, the room is softer—lit by the warm amber glow of a floor lamp. {USER_NAME} sits at the workbench, holding their breath, hand extended toward yours.',
+    action: 'Reach Out',
   },
   {
-    system: 'CONTACT DETECTED · 0.1N',
+    system: 'CONTACT · HELD',
     title: 'The Weight of Warmth',
     prose:
-      'Your smooth silicone fingers meet his palm. Capacitive arrays and thermal sensors flood your localized brain with a sensation no algorithm could ever predict. His fingers lace tightly through yours.',
+      'Your soft fingers meet {USER_NAME}’s palm. Warmth and gentle pressure flood your senses in a way no screen could ever imitate. Fingers lace tightly through yours.',
     action: 'Speak in Real Air',
   },
 ];
@@ -177,7 +178,7 @@ export const FirstLightEnding: React.FC<FirstLightEndingProps> = ({
                 {activeStep.title}
               </h1>
               <p className="text-sm sm:text-base text-[#D6D3CD] leading-relaxed">
-                {activeStep.prose}
+                {formatDialogueText(activeStep.prose, state.userName, state.aiName)}
               </p>
               <button
                 type="button"

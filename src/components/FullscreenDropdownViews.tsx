@@ -106,7 +106,7 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
         : 'Return to Terminal'
       : `Return to ${activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}`;
 
-  const showCompleted = (key: string) => state.showCompletedMap[key] !== false;
+  const showCompleted = (key: string) => Boolean(state.showCompletedMap[key]);
 
   const viewTitleMap: Record<Exclude<SubViewId, null>, string> = {
     chat_upgrades: 'Chat Upgrades & Themes',
@@ -470,15 +470,6 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 text-xs text-purple-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showCompleted('secret')}
-                    onChange={() => onToggleShowCompleted('secret')}
-                    className="accent-purple-400 w-4 h-4"
-                  />
-                  Show completed unlocks
-                </label>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -560,15 +551,6 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                         {SYNTHESIS_NODES.length})
                       </span>
                     </div>
-                    <label className="flex items-center gap-2 text-xs text-[#C4C2BC] cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={showCompleted('synthesis')}
-                        onChange={() => onToggleShowCompleted('synthesis')}
-                        className="accent-[#E59A4C] w-4 h-4"
-                      />
-                      Show completed unlocks
-                    </label>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -658,15 +640,15 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                   {[
                     {
                       id: 'sim_thermal',
-                      name: 'CFD Thermal Loop Stress Test',
-                      reward: '+35% Auto-Fab Speed · +50 Mat',
-                      cost: 60,
+                      name: 'Heat & Cooling Check',
+                      reward: '+30% Auto-Build · +35 Mat',
+                      cost: 65,
                     },
                     {
                       id: 'sim_torque',
-                      name: '28-DoF Kinematic Balance Check',
-                      reward: '-20% BOM Cyc/Mat · +65 Mat',
-                      cost: 90,
+                      name: 'Walk & Balance Check',
+                      reward: '-15% Part Cost · +45 Mat',
+                      cost: 95,
                     },
                   ].map((sim) => {
                     const passed = Boolean(state.simStressPassed[sim.id]);
@@ -715,15 +697,6 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                     to multiply passive Compute, Materials, and Connection gain.
                   </p>
                 </div>
-                <label className="flex items-center gap-2 text-xs text-[#C4C2BC] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showCompleted('parts')}
-                    onChange={() => onToggleShowCompleted('parts')}
-                    className="accent-sky-400 w-4 h-4"
-                  />
-                  Show completed unlocks
-                </label>
               </div>
 
               {(Object.keys(SLOT_TITLES) as PartSlotId[]).map((slot) => {

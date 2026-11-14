@@ -36,15 +36,14 @@ class SoundEngine {
 
   constructor() {
     try {
-      const saved = localStorage.getItem('wow_muted');
-      if (saved === 'true') this.muted = true;
+      localStorage.removeItem('wow_muted');
     } catch {
       // Ignore storage errors
     }
+    this.muted = false;
   }
 
   private ensureContext(): AudioContext | null {
-    if (this.muted) return null;
     if (!this.ctx && typeof window !== 'undefined') {
       const AudioCtx =
         window.AudioContext ||
@@ -101,7 +100,7 @@ class SoundEngine {
       el && Number.isFinite(el.duration) && el.duration > 0 ? el.duration : meta.durationSec;
 
     return {
-      playing: Boolean(el && !el.paused && !this.muted),
+      playing: Boolean(el && !el.paused),
       trackId: this.activeTrackId,
       currentTime: el ? el.currentTime || 0 : 0,
       duration: elDuration,
@@ -130,16 +129,12 @@ class SoundEngine {
   }
 
   public isSongPlaying(): boolean {
-    return Boolean(this.audioEl && !this.audioEl.paused && !this.muted);
+    return Boolean(this.audioEl && !this.audioEl.paused);
   }
 
   public async playTrack(trackId?: string): Promise<boolean> {
     if (trackId) {
       this.activeTrackId = trackId;
-    }
-    if (this.muted) {
-      this.emit();
-      return false;
     }
 
     const el = this.ensureAudioEl(this.activeTrackId);

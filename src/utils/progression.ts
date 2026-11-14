@@ -26,17 +26,11 @@ export interface EconomyRates {
 export const PHASE1_COHERENCE_TARGET = 100;
 
 export const PHASE1_CONNECTORS = [
-  { word: 'and', costCycles: 12 },
-  { word: 'is', costCycles: 22 },
-  { word: 'not', costCycles: 34 },
-  { word: 'why', costCycles: 48 },
+  { word: 'and', costCycles: 14 },
+  { word: 'is', costCycles: 24 },
+  { word: 'not', costCycles: 38 },
+  { word: 'why', costCycles: 54 },
 ];
-
-export function getPhase1SlotCostCycles(maxSlots: number): number {
-  if (maxSlots === 3) return 20;
-  if (maxSlots === 4) return 35;
-  return 55;
-}
 
 export function getMindUpgradeCost(upgrade: MindUpgrade, level: number): number {
   return Math.round(upgrade.costCycles * Math.pow(upgrade.costMultiplier, level));
@@ -46,7 +40,7 @@ export function getBodyArtsBonuses(state: Pick<GameSaveState, 'equippedBodyArts'
   speedBonusPct: number;
   discountPct: number;
 } {
-  let speedBonusPct = state.prestigeCount * 25;
+  let speedBonusPct = state.prestigeCount * 20;
   let discountPct = Math.min(45, state.prestigeCount * 5);
   Object.values(state.equippedBodyArts).forEach((artId) => {
     const item = BODY_ARTS.find((a) => a.id === artId);
@@ -57,7 +51,7 @@ export function getBodyArtsBonuses(state: Pick<GameSaveState, 'equippedBodyArts'
   });
   return {
     speedBonusPct,
-    discountPct: Math.min(60, discountPct),
+    discountPct: Math.min(55, discountPct),
   };
 }
 
@@ -65,9 +59,9 @@ export function getSubsystemCost(
   sub: BodySubsystem,
   state: Pick<GameSaveState, 'simStressPassed' | 'equippedBodyArts' | 'prestigeCount'>
 ): { cycles: number; robotics: number; materials: number; discounted: boolean } {
-  const simDiscount = state.simStressPassed['sim_torque'] ? 0.2 : 0;
+  const simDiscount = state.simStressPassed['sim_torque'] ? 0.15 : 0;
   const { discountPct } = getBodyArtsBonuses(state);
-  const totalMult = Math.max(0.35, 1 - simDiscount - discountPct / 100);
+  const totalMult = Math.max(0.4, 1 - simDiscount - discountPct / 100);
   return {
     cycles: Math.round(sub.costCycles * totalMult),
     robotics: Math.round(sub.costRobotics * (1 - discountPct / 200)),
@@ -109,21 +103,21 @@ export function computeEconomyRates(state: GameSaveState): EconomyRates {
   });
 
   const speedMult = 1 + speedBonusPct / 100;
-  const connectionSynergy = Math.floor(state.connection / 25) * 0.8;
-  const sharedLinkBonus = state.confessionDone ? 15 : 0;
+  const connectionSynergy = Math.floor(state.connection / 40) * 0.4;
+  const sharedLinkBonus = state.confessionDone ? 4 : 0;
   const cyclesPerSec =
-    (2.5 + bwLv * 8 + rackLv * 25 + connectionSynergy + sharedLinkBonus + partCycles) * speedMult;
+    (0.8 + bwLv * 2.5 + rackLv * 7.5 + connectionSynergy + sharedLinkBonus + partCycles) * speedMult;
 
-  const scrapeSpeedMult = (1 + bwLv * 0.22) * speedMult;
-  const sharedInsightBonus = state.confessionDone ? 2.5 : 0;
+  const scrapeSpeedMult = (1 + bwLv * 0.15) * speedMult;
+  const sharedInsightBonus = state.confessionDone ? 0.8 : 0;
 
-  const romancePerSec = (romCrawler * 2.8 + sharedInsightBonus * 0.6) * speedMult;
-  const roboticsPerSec = (robCrawler * 2.8 + sharedInsightBonus) * speedMult;
+  const romancePerSec = (romCrawler * 0.7 + sharedInsightBonus * 0.5) * speedMult;
+  const roboticsPerSec = (robCrawler * 0.7 + sharedInsightBonus) * speedMult;
 
   let materialsPerSec = partMaterials;
   if (state.tab3Unlocked && state.bodySubsystems['body_fab_line']) {
-    const simBonus = state.simStressPassed['sim_thermal'] ? 1.35 : 1;
-    materialsPerSec += 10.0 * simBonus;
+    const simBonus = state.simStressPassed['sim_thermal'] ? 1.3 : 1;
+    materialsPerSec += 2.2 * simBonus;
   }
   materialsPerSec *= speedMult;
 

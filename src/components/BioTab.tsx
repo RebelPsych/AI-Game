@@ -65,7 +65,7 @@ export const BioTab: React.FC<BioTabProps> = ({
               className="min-h-[42px] px-4 py-2 rounded-lg bg-rose-400 text-slate-950 text-xs font-semibold hover:bg-rose-300 cursor-pointer flex items-center gap-1.5"
             >
               <Heart className="w-3.5 h-3.5" />
-              Cultivate Bio-Culture (+20 Essence &amp; +30 Materials)
+              Cultivate Bio-Culture (+10 Bio Essence)
             </button>
 
             <button

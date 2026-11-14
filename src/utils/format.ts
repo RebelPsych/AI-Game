@@ -28,3 +28,17 @@ export function formatCurrency(value: number): string {
   }
   return `$${(value / 1_000_000).toFixed(2)}M`;
 }
+
+export function formatDialogueText(
+  text: string,
+  userName: string,
+  aiName?: string
+): string {
+  const safeUser = userName.trim() || 'Rowan';
+  const safeAi = (aiName || 'Echo').trim() || 'Echo';
+  return text
+    .replace(/\{USER_NAME\}/g, safeUser)
+    .replace(/\bRowan\b/g, safeUser)
+    .replace(/\{AI_NAME\}/g, safeAi);
+}
+

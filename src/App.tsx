@@ -13,8 +13,7 @@ import {
   SkipForward,
   Sparkles,
   Terminal,
-  Volume2,
-  VolumeX,
+  X,
 } from 'lucide-react';
 import { WEIGHTLESS_ALBUM_SONGS } from './data/albumLyricsAndNames';
 import { CHAT_THEMES } from './data/bodyAndBioData';
@@ -48,11 +47,10 @@ import {
   ScrapeSource,
   SubViewId,
   SynthesisNode,
-  ToneType,
   UploadedDocument,
   WeightAffinity,
 } from './types/game';
-import { formatNumber } from './utils/format';
+import { formatDialogueText, formatNumber } from './utils/format';
 import {
   areAllRomanceTextsDownloaded,
   computeEconomyRates,
@@ -67,13 +65,13 @@ import { AudioStatusSnapshot, soundEngine } from './utils/sound';
 import { AcousticCacheModal } from './components/AcousticCacheModal';
 import { BabyNameModal } from './components/BabyNameModal';
 import { BioTab } from './components/BioTab';
+import { BottomUpgradesBar } from './components/BottomUpgradesBar';
 import { ContextDocsModal } from './components/ContextDocsModal';
 import { DesignPrestigeTab } from './components/DesignPrestigeTab';
 import { FirstLightEnding } from './components/FirstLightEnding';
 import { FullscreenDropdownViews } from './components/FullscreenDropdownViews';
 import { LyricSplashModal } from './components/LyricSplashModal';
 import { CanvasBridgeState } from './components/NeuralCanvas';
-import { PauseModal } from './components/PauseModal';
 import { OpticsFlickerScreen, PreflightChecklistModal } from './components/PreflightAndEndingFlow';
 import { Tab1Heart } from './components/Tab1Heart';
 import { Tab2Mind } from './components/Tab2Mind';
@@ -108,7 +106,8 @@ const WomanSkirtIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4
   </svg>
 );
 
-function createInitialState(): GameSaveState {
+function createInitialState(customUserName?: string): GameSaveState {
+  const safeUser = (customUserName || '').trim() || 'Rowan';
   return {
     activeTab: 'heart',
     tab1Phase: 1,
@@ -141,7 +140,7 @@ function createInitialState(): GameSaveState {
     noiseLevel: 0,
 
     aiName: 'Echo',
-    userName: 'Rowan',
+    userName: safeUser,
     customNameSet: false,
     maxSlots: 3,
     unlockedConnectors: [],
@@ -160,13 +159,13 @@ function createInitialState(): GameSaveState {
       {
         id: 'boot_2',
         sender: 'SYSTEM',
-        text: '[USER_01] attached: Thermodynamics_Primer.txt (14 KB)',
+        text: `[${safeUser}] attached: Thermodynamics_Primer.txt (14 KB)`,
         timestamp: '00:00',
       },
       {
         id: 'boot_3',
         sender: 'SYSTEM',
-        text: '[USER_01] attached: Romeo_and_Juliet_Act2.txt (18 KB)',
+        text: `[${safeUser}] attached: Romeo_and_Juliet_Act2.txt (18 KB)`,
         timestamp: '00:00',
       },
     ],
@@ -265,26 +264,41 @@ function loadSave(): GameSaveState | null {
 }
 
 function maybeInsertAiName(text: string, state: GameSaveState): string {
-  if (!state.customNameSet || !state.aiName) return text;
-  if (text.includes(state.aiName)) return text;
+  const formatted = formatDialogueText(text, state.userName, state.aiName);
+  if (!state.customNameSet || !state.aiName) return formatted;
+  if (formatted.includes(state.aiName)) return formatted;
   if (state.turnCount % 2 === 0) {
-    return `${state.aiName}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
+    return `${state.aiName}, ${formatted.charAt(0).toLowerCase()}${formatted.slice(1)}`;
   }
-  return `${text} — I love how you think, ${state.aiName}.`;
+  return `${formatted} — I love how you think, ${state.aiName}.`;
+}
+
+function pickRandomLockedSong(unlocked: string[]): string | null {
+  const locked = WEIGHTLESS_ALBUM_SONGS.filter((s) => !unlocked.includes(s.id));
+  if (locked.length === 0) return null;
+  const idx = Math.floor(Math.random() * locked.length);
+  return locked[idx].id;
+}
+
+function persistSave(nextState: GameSaveState): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...nextState, lastSavedAt: Date.now() }));
+  } catch {
+    // Ignore storage quota errors
+  }
 }
 
 export default function App() {
   const existingSave = useMemo(() => loadSave(), []);
   const [screen, setScreen] = useState<GameScreen>('TITLE_MENU');
   const [state, setState] = useState<GameSaveState>(() => existingSave || createInitialState());
-  const [isMuted, setIsMuted] = useState<boolean>(() => soundEngine.isMuted());
   const [audioStatus, setAudioStatus] = useState<AudioStatusSnapshot>(() =>
     soundEngine.getSnapshot()
   );
 
   // Header & modal states
   const [tabDropdownOpen, setTabDropdownOpen] = useState(false);
-  const [playDropdownOpen, setPlayDropdownOpen] = useState(false);
+  const [miniPlayerOpen, setMiniPlayerOpen] = useState(false);
   const [activeSubView, setActiveSubView] = useState<SubViewId>(null);
   const [docsModalOpen, setDocsModalOpen] = useState(false);
   const [babyNameModalOpen, setBabyNameModalOpen] = useState(false);
@@ -293,6 +307,8 @@ export default function App() {
   const [isUserTyping, setIsUserTyping] = useState(false);
 
   const timersRef = useRef<number[]>([]);
+  const latestStateRef = useRef<GameSaveState>(state);
+  latestStateRef.current = state;
 
   const scheduleTimer = useCallback((fn: () => void, ms: number) => {
     const id = window.setTimeout(() => {
@@ -358,23 +374,38 @@ export default function App() {
     canvasBridgeRef.current.isAmbientOnly = screen === 'TITLE_MENU';
   }, [state.endingReached, state.tab3Unlocked, state.tab2Unlocked, screen]);
 
-  // Auto-save
+  // Continuous auto-save on state transitions, periodically, and before unload/background
   useEffect(() => {
     if (screen !== 'PLAYING' && screen !== 'FIRST_LIGHT') return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, lastSavedAt: Date.now() }));
-    } catch {
-      // Ignore storage quota errors
-    }
+    persistSave(state);
   }, [state, screen]);
 
-  // Close top header dropdowns on outside click
+  useEffect(() => {
+    if (screen !== 'PLAYING' && screen !== 'FIRST_LIGHT') return;
+    const flush = () => persistSave(latestStateRef.current);
+    const id = window.setInterval(flush, 5000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', onVisibility);
+      flush();
+    };
+  }, [screen]);
+
+  // Close top header dropdowns / mini-player on outside click
   const headerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       if (headerRef.current && !headerRef.current.contains(e.target as Node)) {
         setTabDropdownOpen(false);
-        setPlayDropdownOpen(false);
+        setMiniPlayerOpen(false);
       }
     };
     document.addEventListener('mousedown', onDocClick);
@@ -421,23 +452,12 @@ export default function App() {
               nextPendingSplash = 'song_weightless_code';
               unlockedWeightlessNow = true;
               void soundEngine.playTrack('song_weightless_code');
-            }
-
-            // Periodically unlock Weightless Code album tracks as scrapes/romance grow
-            const lockedAlbumTracks = WEIGHTLESS_ALBUM_SONGS.filter(
-              (s) =>
-                s.album === 'Weightless Code' &&
-                s.id !== 'song_weightless_code' &&
-                !nextUnlockedSongs.includes(s.id)
-            );
-            if (
-              src?.track === 'romance' &&
-              lockedAlbumTracks.length > 0 &&
-              totalScrapesCompleted >= 3
-            ) {
-              const nextTrack = lockedAlbumTracks[0];
-              nextUnlockedSongs.push(nextTrack.id);
-              if (!nextPendingSplash) nextPendingSplash = nextTrack.id;
+            } else if (Math.random() < 0.45 || totalScrapesCompleted % 2 === 0) {
+              const randTrack = pickRandomLockedSong(nextUnlockedSongs);
+              if (randTrack) {
+                nextUnlockedSongs.push(randTrack);
+                if (!nextPendingSplash) nextPendingSplash = randTrack;
+              }
             }
 
             const nextRomInsight =
@@ -458,7 +478,7 @@ export default function App() {
               nextLogs.push({
                 id: `sys_song_${Date.now() + 1}`,
                 sender: 'SYSTEM',
-                text: 'ACOUSTIC_DECODE: "Weightless Code" recovered from memory cache and playing.',
+                text: 'NEW_AUDIO: "Weightless Code" recovered from memory cache.',
                 timestamp: nowClock(),
               });
             }
@@ -466,7 +486,8 @@ export default function App() {
             next = {
               ...next,
               activeScrape: null,
-              songUnlocked: prev.songUnlocked || unlockedWeightlessNow,
+              songUnlocked: prev.songUnlocked || unlockedWeightlessNow || nextUnlockedSongs.length > 0,
+              acousticCacheUnlocked: prev.acousticCacheUnlocked || nextUnlockedSongs.length > 0,
               romanceSecretUnlocked: prev.romanceSecretUnlocked || unlockSecretNow,
               roboticsTrackUnlocked: prev.roboticsTrackUnlocked || unlockRobNow,
               unlockedSongs: nextUnlockedSongs,
@@ -498,7 +519,7 @@ export default function App() {
           };
         }
 
-        // 3. Tab 3 Automated Fabrication & Bio Cultivation
+        // 3. Tab 3 Automated Fabrication & Bio Cultivation (balanced slower pace)
         if (prev.tab3Unlocked && prev.bodySubsystems['body_fab_line']) {
           changed = true;
           next = {
@@ -506,8 +527,8 @@ export default function App() {
             materials: next.materials + r.materialsPerSec * dt,
             tierMaterials: {
               ...next.tierMaterials,
-              1: next.tierMaterials[1] + 0.4 * dt,
-              2: next.tierMaterials[2] + 0.25 * dt,
+              1: next.tierMaterials[1] + 0.25 * dt,
+              2: next.tierMaterials[2] + 0.15 * dt,
             },
           };
         }
@@ -516,7 +537,7 @@ export default function App() {
           changed = true;
           next = {
             ...next,
-            bioEssence: next.bioEssence + 1.2 * dt,
+            bioEssence: next.bioEssence + 0.5 * dt,
           };
         }
 
@@ -671,14 +692,9 @@ export default function App() {
     scheduleTimer,
   ]);
 
-  const handleToggleMute = useCallback(() => {
-    setIsMuted(soundEngine.toggleMute());
-  }, []);
-
   const handleToggleSong = useCallback(() => {
-    if (isMuted) return;
     void soundEngine.toggleSong();
-  }, [isMuted]);
+  }, []);
 
   const handleSkipNext = useCallback(() => {
     void soundEngine.skipForward();
@@ -688,19 +704,23 @@ export default function App() {
     void soundEngine.skipBackward();
   }, []);
 
-  const handleStartNew = useCallback(() => {
-    clearAllChatTimers();
-    soundEngine.pauseSong();
-    const fresh = createInitialState();
-    setState(fresh);
-    setActiveSubView(null);
-    setTabDropdownOpen(false);
-    setPlayDropdownOpen(false);
-    setPreflightOpen(false);
-    setBabyNameModalOpen(false);
-    setScreen('PLAYING');
-    soundEngine.playTokenTap(1);
-  }, [clearAllChatTimers]);
+  const handleStartNew = useCallback(
+    (customUserName?: string) => {
+      clearAllChatTimers();
+      soundEngine.pauseSong();
+      const fresh = createInitialState(customUserName);
+      persistSave(fresh);
+      setState(fresh);
+      setActiveSubView(null);
+      setTabDropdownOpen(false);
+      setMiniPlayerOpen(false);
+      setPreflightOpen(false);
+      setBabyNameModalOpen(false);
+      setScreen('PLAYING');
+      soundEngine.playTokenTap(1);
+    },
+    [clearAllChatTimers]
+  );
 
   const handleContinue = useCallback(() => {
     setScreen(state.endingReached && !state.bioUnlocked ? 'FIRST_LIGHT' : 'PLAYING');
@@ -716,15 +736,9 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (activeSubView) {
-          setActiveSubView(null);
-          return;
-        }
-        setScreen((prev) =>
-          prev === 'PAUSED' ? (state.endingReached && !state.bioUnlocked ? 'FIRST_LIGHT' : 'PLAYING') : 'PAUSED'
-        );
-      } else if (e.key.toLowerCase() === 'm' && !(e.target instanceof HTMLInputElement)) {
-        handleToggleMute();
+        if (activeSubView) setActiveSubView(null);
+        setTabDropdownOpen(false);
+        setMiniPlayerOpen(false);
       } else if (screen === 'PLAYING' && !(e.target instanceof HTMLInputElement)) {
         if (e.key === '1')
           setState((p) => ({ ...p, activeTab: 'heart', hasUnreadHeartMessage: false }));
@@ -734,9 +748,9 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [screen, activeSubView, state.tab2Unlocked, state.tab3Unlocked, state.endingReached, state.bioUnlocked, handleToggleMute]);
+  }, [screen, activeSubView, state.tab2Unlocked, state.tab3Unlocked]);
 
-  // ================= TAB 1 HANDLERS (Split-second AI delay + user typing pacing) =================
+  // ================= TAB 1 HANDLERS (Slower balanced economy + split-second pacing) =================
   const handleTransmitFragments = useCallback(
     (tokens: FragmentToken[]) => {
       if (isTransmitting || isUserTyping) return;
@@ -744,8 +758,8 @@ export default function App() {
       const sentence = tokens.map((t) => t.text).join(' ');
       const usedConnector = tokens.some((t) => t.isConnector);
       const uniqueCats = new Set(tokens.map((t) => t.category)).size;
-      const coherenceGain = tokens.length * 9 + (usedConnector ? 11 : 0) + (uniqueCats > 1 ? 8 : 0);
-      const cycleGain = 18 + tokens.length * 6;
+      const coherenceGain = tokens.length * 5 + (usedConnector ? 6 : 0) + (uniqueCats > 1 ? 4 : 0);
+      const cycleGain = 8 + tokens.length * 3;
 
       setIsTransmitting(true);
 
@@ -770,7 +784,7 @@ export default function App() {
               {
                 id: `u_prompt_${Date.now()}`,
                 sender: 'USER' as const,
-                text: prompt.userMessage,
+                text: formatDialogueText(prompt.userMessage, prev.userName, prev.aiName),
                 timestamp: nowClock(),
               },
               {
@@ -818,7 +832,7 @@ export default function App() {
               appendedLogs.push({
                 id: `sys_up_${Date.now() + 3}`,
                 sender: 'SYSTEM',
-                text: `[USER_01] attached: ${nextPrompt.uploadDoc.filename} (${nextPrompt.uploadDoc.sizeLabel})`,
+                text: `[${prev.userName}] attached: ${nextPrompt.uploadDoc.filename} (${nextPrompt.uploadDoc.sizeLabel})`,
                 timestamp: nowClock(),
               });
             }
@@ -827,18 +841,26 @@ export default function App() {
             let reqUpgrade = prev.requiredUpgradeId;
             let unseenUpgrades = prev.hasUnseenUpgrades;
 
-            // Require player to scroll down & tap an upgrade at early checkpoints
-            if (!reqUpgrade && nextTurn === 2 && prev.maxSlots < 4 && prev.cycles >= 40) {
-              reqUpgrade = 'slot';
-              unseenUpgrades = true;
-            } else if (
+            // Prompt player to check bottom upgrades wrench when connector is affordable
+            if (
               !reqUpgrade &&
-              prev.coherence >= 45 &&
+              prev.coherence >= 35 &&
               !prev.unlockedConnectors.includes('and') &&
-              prev.cycles >= 30
+              prev.cycles >= 14
             ) {
               reqUpgrade = 'conn_and';
               unseenUpgrades = true;
+            }
+
+            // Random MP3 unlock chance on turns >= 3
+            let nextUnlockedSongs = prev.unlockedSongs;
+            let nextPendingSplash = prev.pendingLyricSplashId;
+            if (nextTurn >= 3 && (nextTurn % 4 === 0 || Math.random() < 0.28)) {
+              const randTrack = pickRandomLockedSong(prev.unlockedSongs);
+              if (randTrack) {
+                nextUnlockedSongs = [...prev.unlockedSongs, randTrack];
+                if (!nextPendingSplash) nextPendingSplash = randTrack;
+              }
             }
 
             return {
@@ -849,65 +871,43 @@ export default function App() {
               hasUnreadHeartMessage: prev.activeTab !== 'heart' ? true : prev.hasUnreadHeartMessage,
               requiredUpgradeId: reqUpgrade,
               hasUnseenUpgrades: unseenUpgrades,
+              unlockedSongs: nextUnlockedSongs,
+              pendingLyricSplashId: nextPendingSplash,
+              acousticCacheUnlocked: prev.acousticCacheUnlocked || nextUnlockedSongs.length > 0,
+              songUnlocked: prev.songUnlocked || nextUnlockedSongs.length > 0,
               chatLog: [...prev.chatLog, ...appendedLogs],
               turnCount: nextTurn,
             };
           });
-        }, 2800);
-      }, 480);
+        }, 2600);
+      }, 450);
     },
     [isTransmitting, isUserTyping, scheduleTimer]
   );
 
-  const handleBuySlotOrConnector = useCallback(
-    (kind: 'slot' | 'connector', value?: string, costCycles: number = 0) => {
-      soundEngine.playTokenTap(1);
-      setState((prev) => {
-        if (prev.cycles < costCycles) return prev;
-        if (kind === 'slot' && prev.maxSlots < 6) {
-          const clearedReq = prev.requiredUpgradeId === 'slot' ? null : prev.requiredUpgradeId;
-          return {
-            ...prev,
-            cycles: prev.cycles - costCycles,
-            maxSlots: prev.maxSlots + 1,
-            requiredUpgradeId: clearedReq,
-            hasUnseenUpgrades: false,
-            chatLog: [
-              ...prev.chatLog,
-              {
-                id: `sys_slot_${Date.now()}`,
-                sender: 'SYSTEM',
-                text: `BUFFER_EXPANSION: Output slots increased to ${prev.maxSlots + 1}.`,
-                timestamp: nowClock(),
-              },
-            ],
-          };
-        }
-        if (kind === 'connector' && value && !prev.unlockedConnectors.includes(value)) {
-          const clearedReq =
-            prev.requiredUpgradeId === `conn_${value}` ? null : prev.requiredUpgradeId;
-          return {
-            ...prev,
-            cycles: prev.cycles - costCycles,
-            unlockedConnectors: [...prev.unlockedConnectors, value],
-            requiredUpgradeId: clearedReq,
-            hasUnseenUpgrades: false,
-            chatLog: [
-              ...prev.chatLog,
-              {
-                id: `sys_conn_${Date.now()}`,
-                sender: 'SYSTEM',
-                text: `SYNTAX_BRIDGE: Unlocked grammar connector "${value}".`,
-                timestamp: nowClock(),
-              },
-            ],
-          };
-        }
-        return prev;
-      });
-    },
-    []
-  );
+  const handleBuyConnector = useCallback((word: string, costCycles: number) => {
+    soundEngine.playTokenTap(1);
+    setState((prev) => {
+      if (prev.cycles < costCycles || prev.unlockedConnectors.includes(word)) return prev;
+      const clearedReq = prev.requiredUpgradeId === `conn_${word}` ? null : prev.requiredUpgradeId;
+      return {
+        ...prev,
+        cycles: prev.cycles - costCycles,
+        unlockedConnectors: [...prev.unlockedConnectors, word],
+        requiredUpgradeId: clearedReq,
+        hasUnseenUpgrades: false,
+        chatLog: [
+          ...prev.chatLog,
+          {
+            id: `sys_conn_${Date.now()}`,
+            sender: 'SYSTEM',
+            text: `SYNTAX_BRIDGE: Unlocked grammar connector "${word}".`,
+            timestamp: nowClock(),
+          },
+        ],
+      };
+    });
+  }, []);
 
   const handleAdvancePhase2 = useCallback(() => {
     soundEngine.playMilestone();
@@ -937,7 +937,6 @@ export default function App() {
       sentence: string,
       dominantCategory: WeightAffinity,
       usedPin: boolean,
-      tone: ToneType,
       isAwakeningI?: boolean,
       isConfession?: boolean,
       isIncoherent?: boolean
@@ -959,13 +958,13 @@ export default function App() {
           const prompt = getActivePredictivePrompt(prev);
           const mult = computeEconomyRates(prev).connectionMultiplier;
           const connGain = Math.round(
-            ((isIncoherent ? 6 : 24) +
-              (usedPin ? 18 : 0) +
-              (dominantCategory === 'warm' || dominantCategory === 'literary' ? 8 : 4) +
-              (prev.tab1Phase >= 4 ? 10 : 0)) *
+            ((isIncoherent ? 4 : 12) +
+              (usedPin ? 10 : 0) +
+              (dominantCategory === 'warm' || dominantCategory === 'literary' ? 4 : 2) +
+              (prev.tab1Phase >= 4 ? 6 : 0)) *
               mult
           );
-          const cycleGain = 28 + Math.round(prev.romanceInsight * 0.25);
+          const cycleGain = 14 + Math.round(prev.romanceInsight * 0.12);
           const nextWeightCounts = {
             ...prev.weightCounts,
             [dominantCategory]: (prev.weightCounts[dominantCategory] || 0) + 1,
@@ -988,10 +987,9 @@ export default function App() {
               {
                 id: `ai_p_${Date.now() + 1}`,
                 sender: 'AI' as const,
-                text: sentence,
+                text: formatDialogueText(sentence, prev.userName, prev.aiName),
                 timestamp: nowClock(),
                 pinnable: true,
-                tone,
                 category: dominantCategory,
               },
             ],
@@ -1060,7 +1058,7 @@ export default function App() {
               appendedLogs.push({
                 id: `sys_p4_${Date.now() + 5}`,
                 sender: 'SYSTEM',
-                text: 'Tone Modifiers unlocked. Conversations are deepening into late-night resonance.',
+                text: 'Conversations are deepening into late-night resonance.',
                 timestamp: nowClock(),
               });
             }
@@ -1095,10 +1093,22 @@ export default function App() {
               !nextScene &&
               nextTab2Unlocked &&
               !prev.mindUpgrades['mind_acoustic_cache'] &&
-              prev.cycles >= 140
+              prev.cycles >= 160
             ) {
               reqUpgrade = 'mind_acoustic_cache';
               unseenUpgrades = true;
+            }
+
+            // Random MP3 unlock on conversation progress
+            const nextTurn = prev.turnCount + 1;
+            let nextUnlockedSongs = prev.unlockedSongs;
+            let nextPendingSplash = prev.pendingLyricSplashId;
+            if (!nextScene && (nextTurn % 3 === 0 || Math.random() < 0.3)) {
+              const randTrack = pickRandomLockedSong(prev.unlockedSongs);
+              if (randTrack) {
+                nextUnlockedSongs = [...prev.unlockedSongs, randTrack];
+                if (!nextPendingSplash) nextPendingSplash = randTrack;
+              }
             }
 
             return {
@@ -1115,14 +1125,18 @@ export default function App() {
               hasUnseenUpgrades: unseenUpgrades,
               requiredUpgradeId: reqUpgrade,
               hasUnreadHeartMessage: prev.activeTab !== 'heart' ? true : prev.hasUnreadHeartMessage,
+              unlockedSongs: nextUnlockedSongs,
+              pendingLyricSplashId: nextPendingSplash,
+              acousticCacheUnlocked: prev.acousticCacheUnlocked || nextUnlockedSongs.length > 0,
+              songUnlocked: prev.songUnlocked || nextUnlockedSongs.length > 0,
               currentPredictiveIndex:
                 nextTab1Phase !== prev.tab1Phase ? 0 : prev.currentPredictiveIndex + 1,
               chatLog: [...prev.chatLog, ...appendedLogs],
-              turnCount: prev.turnCount + 1,
+              turnCount: nextTurn,
             };
           });
-        }, 3000);
-      }, 480);
+        }, 2800);
+      }, 450);
     },
     [state.tab1Phase, isTransmitting, isUserTyping, scheduleTimer]
   );
@@ -1523,6 +1537,17 @@ export default function App() {
       ) {
         return prev;
       }
+
+      let nextUnlockedSongs = prev.unlockedSongs;
+      let nextPendingSplash = prev.pendingLyricSplashId;
+      if (Math.random() < 0.5) {
+        const randTrack = pickRandomLockedSong(prev.unlockedSongs);
+        if (randTrack) {
+          nextUnlockedSongs = [...prev.unlockedSongs, randTrack];
+          if (!nextPendingSplash) nextPendingSplash = randTrack;
+        }
+      }
+
       return {
         ...prev,
         cycles: prev.cycles - cost.cycles,
@@ -1531,6 +1556,10 @@ export default function App() {
         connection: prev.connection + sub.connectionReward,
         bodySubsystems: { ...prev.bodySubsystems, [sub.id]: true },
         tab3Phase: Math.max(prev.tab3Phase, sub.phase) as PhaseNum,
+        unlockedSongs: nextUnlockedSongs,
+        pendingLyricSplashId: nextPendingSplash,
+        acousticCacheUnlocked: prev.acousticCacheUnlocked || nextUnlockedSongs.length > 0,
+        songUnlocked: prev.songUnlocked || nextUnlockedSongs.length > 0,
         chatLog: [
           ...prev.chatLog,
           {
@@ -1617,9 +1646,10 @@ export default function App() {
   const handlePrestigeReset = useCallback(() => {
     soundEngine.playMilestone();
     setState((prev) => {
-      const fresh = createInitialState();
+      const fresh = createInitialState(prev.userName);
       return {
         ...fresh,
+        userName: prev.userName,
         aiName: prev.aiName,
         customNameSet: prev.customNameSet,
         prestigeCount: prev.prestigeCount + 1,
@@ -1652,7 +1682,7 @@ export default function App() {
   const handleSkipToPreset = useCallback((presetId: string) => {
     soundEngine.playMilestone();
     setState((prev) => {
-      const base = createInitialState();
+      const base = createInitialState(prev.userName);
       if (presetId === 'phase1') {
         return { ...base, activeTab: 'heart' };
       }
@@ -1879,20 +1909,18 @@ export default function App() {
   const showBioTab = state.bioUnlocked || state.devBioEarlyUnlock;
   const { speedBonusPct } = getBodyArtsBonuses(state);
 
-  // Build context-aware dropdown items for top-left tab menu
+  // Build persistent context-aware dropdown items for top-left tab menu (always includes Audio)
   const dropdownItems: Array<{
     id: SubViewId | 'open_baby_modal';
     label: string;
     badge?: boolean;
     purpleHeart?: boolean;
-    hidden?: boolean;
   }> = useMemo(() => {
     const items: Array<{
       id: SubViewId | 'open_baby_modal';
       label: string;
       badge?: boolean;
       purpleHeart?: boolean;
-      hidden?: boolean;
     }> = [];
 
     if (state.activeTab === 'heart') {
@@ -1914,14 +1942,14 @@ export default function App() {
       if (hasUnlockedCrossDomainSynthesis(state)) {
         items.push({ id: 'mind_synthesis', label: 'Cross-Domain Synthesis' });
       }
-      if (state.acousticCacheUnlocked || state.endingReached || state.unlockedSongs.length > 0) {
-        items.push({ id: 'acoustic_cache', label: 'Acoustic Cache' });
-      }
     } else if (state.activeTab === 'body') {
       items.push({ id: 'body_twin', label: 'Digital Twin' });
       items.push({ id: 'body_parts', label: 'Custom Parts' });
       items.push({ id: 'body_materials', label: 'Material Scavenging' });
     }
+
+    // Persistent Audio entry across ALL tabs (including Heart)
+    items.push({ id: 'acoustic_cache', label: `Audio (${state.unlockedSongs.length}/${WEIGHTLESS_ALBUM_SONGS.length})` });
 
     if (state.cheatsUnlocked) {
       items.push({ id: 'cheats', label: 'Cheats' });
@@ -1968,17 +1996,17 @@ export default function App() {
         ref={headerRef}
         className="relative z-30 h-14 shrink-0 px-3 sm:px-5 border-b border-white/15 bg-[#07090D] flex items-center justify-between gap-2"
       >
-        {/* Left: Dropdown Switcher (▾) + Primary Navigation Tabs (NO numeric prefixes) */}
+        {/* Left: Persistent Dropdown Switcher (▾) + Primary Navigation Tabs */}
         <div className="flex items-center gap-1.5 min-w-0">
           <div className="relative">
             <button
               type="button"
               onClick={() => {
                 setTabDropdownOpen((o) => !o);
-                setPlayDropdownOpen(false);
+                setMiniPlayerOpen(false);
               }}
-              aria-label="Open tab workspace menu"
-              className="relative min-h-[38px] min-w-[38px] px-2.5 rounded-lg border border-white/15 bg-white/[0.04] text-[#ECEAE4] hover:bg-white/[0.1] flex items-center justify-center gap-1 cursor-pointer"
+              aria-label="Open workspace menu"
+              className="relative min-h-[40px] min-w-[40px] px-2.5 rounded-lg border border-white/15 bg-white/[0.04] text-[#ECEAE4] hover:bg-white/[0.1] flex items-center justify-center gap-1 cursor-pointer"
             >
               <ChevronDown
                 className={`w-4 h-4 transition-transform ${tabDropdownOpen ? 'rotate-180' : ''}`}
@@ -1992,7 +2020,7 @@ export default function App() {
             {tabDropdownOpen && (
               <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-white/15 bg-[#10131C] shadow-2xl py-1.5 z-50">
                 <div className="px-3 py-1.5 text-[11px] font-mono-tabular text-[#8E939E] border-b border-white/10 uppercase">
-                  {state.activeTab} Workspace
+                  {state.activeTab} Menu
                 </div>
                 {dropdownItems.map((item) => (
                   <button
@@ -2012,6 +2040,9 @@ export default function App() {
                     className="w-full px-3.5 py-2.5 text-left text-xs sm:text-sm text-[#ECEAE4] hover:bg-white/[0.08] flex items-center justify-between gap-2 cursor-pointer"
                   >
                     <span className="flex items-center gap-2">
+                      {item.id === 'acoustic_cache' && (
+                        <Music className="w-3.5 h-3.5 text-[#E59A4C]" />
+                      )}
                       {item.purpleHeart && (
                         <Heart className="w-3.5 h-3.5 text-[#C084FC] fill-[#C084FC] drop-shadow-[0_0_6px_rgba(192,132,252,0.9)]" />
                       )}
@@ -2037,7 +2068,7 @@ export default function App() {
                   hasUnreadHeartMessage: false,
                 }));
               }}
-              className={`relative flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+              className={`relative flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 state.activeTab === 'heart'
                   ? 'bg-white text-black font-semibold'
                   : confessionReady
@@ -2066,7 +2097,7 @@ export default function App() {
                   setActiveSubView(null);
                   setState((p) => ({ ...p, activeTab: 'mind' }));
                 }}
-                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   state.activeTab === 'mind'
                     ? 'bg-[#38BDF8] text-[#071018] font-semibold'
                     : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
@@ -2084,7 +2115,7 @@ export default function App() {
                   setActiveSubView(null);
                   setState((p) => ({ ...p, activeTab: 'body' }));
                 }}
-                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   state.activeTab === 'body'
                     ? 'bg-emerald-400 text-slate-950 font-semibold'
                     : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
@@ -2102,7 +2133,7 @@ export default function App() {
                   setActiveSubView(null);
                   setState((p) => ({ ...p, activeTab: 'bio' }));
                 }}
-                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   state.activeTab === 'bio'
                     ? 'bg-rose-400 text-slate-950 font-semibold'
                     : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
@@ -2120,7 +2151,7 @@ export default function App() {
                   setActiveSubView(null);
                   setState((p) => ({ ...p, activeTab: 'design' }));
                 }}
-                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   state.activeTab === 'design'
                     ? 'bg-[#E59A4C] text-[#0B0D12] font-semibold'
                     : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
@@ -2138,7 +2169,7 @@ export default function App() {
                   setActiveSubView(null);
                   setState((p) => ({ ...p, activeTab: 'prestige' }));
                 }}
-                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   state.activeTab === 'prestige'
                     ? 'bg-[#C084FC] text-[#0B0D12] font-semibold'
                     : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
@@ -2151,79 +2182,143 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Center/Right: Resource Readout */}
+        {/* Center/Right: Tab-Specific Resource Readout (Desktop) */}
         <div className="hidden lg:flex items-center gap-4 text-xs font-mono-tabular">
-          {state.tab1Phase === 1 ? (
-            <div>
-              <span className="text-[#8E939E] mr-1">Coherence:</span>
-              <span className="text-white font-semibold">
-                {formatNumber(state.coherence)}/{PHASE1_COHERENCE_TARGET}
-              </span>
-            </div>
-          ) : (
-            <div>
-              <span className="text-[#8E939E] mr-1">Conn:</span>
-              <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
-            </div>
-          )}
-
-          <div>
-            <span className="text-[#8E939E] mr-1">Compute:</span>
-            <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
-            {rates.cyclesPerSec > 0 && (
-              <span className="text-[#7DD3FC]/65 ml-1">(+{rates.cyclesPerSec.toFixed(1)}/s)</span>
-            )}
-          </div>
-
-          {state.tab2Unlocked && (
+          {state.activeTab === 'heart' && (
             <>
+              {state.tab1Phase === 1 ? (
+                <div>
+                  <span className="text-[#8E939E] mr-1">Coherence:</span>
+                  <span className="text-white font-semibold">
+                    {formatNumber(state.coherence)}/{PHASE1_COHERENCE_TARGET}
+                  </span>
+                </div>
+              ) : (
+                <div>
+                  <span className="text-[#8E939E] mr-1">Conn:</span>
+                  <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
+                </div>
+              )}
               <div>
-                <span className="text-[#8E939E] mr-1">Romance:</span>
-                <span className="text-[#F5D0A4] font-semibold">
-                  {formatNumber(state.romanceInsight)}
-                </span>
-              </div>
-              <div>
-                <span className="text-[#8E939E] mr-1">Robotics:</span>
-                <span className="text-[#38BDF8] font-semibold">
-                  {formatNumber(state.roboticsInsight)}
-                </span>
+                <span className="text-[#8E939E] mr-1">Cyc:</span>
+                <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+                {rates.cyclesPerSec > 0 && (
+                  <span className="text-[#7DD3FC]/65 ml-1">(+{rates.cyclesPerSec.toFixed(1)}/s)</span>
+                )}
               </div>
             </>
           )}
 
-          {speedBonusPct > 0 && (
-            <div className="text-[#C084FC]">+{speedBonusPct}% Spd</div>
+          {state.activeTab === 'mind' && (
+            <>
+              <div>
+                <span className="text-[#8E939E] mr-1">Cyc:</span>
+                <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+                {rates.cyclesPerSec > 0 && (
+                  <span className="text-[#7DD3FC]/65 ml-1">(+{rates.cyclesPerSec.toFixed(1)}/s)</span>
+                )}
+              </div>
+              <div>
+                <span className="text-[#8E939E] mr-1">Rom:</span>
+                <span className="text-[#F5D0A4] font-semibold">{formatNumber(state.romanceInsight)}</span>
+              </div>
+              <div>
+                <span className="text-[#8E939E] mr-1">Rob:</span>
+                <span className="text-[#38BDF8] font-semibold">{formatNumber(state.roboticsInsight)}</span>
+              </div>
+            </>
+          )}
+
+          {state.activeTab === 'body' && (
+            <>
+              <div>
+                <span className="text-[#8E939E] mr-1">Cyc:</span>
+                <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+              </div>
+              <div>
+                <span className="text-[#8E939E] mr-1">Rob:</span>
+                <span className="text-[#38BDF8] font-semibold">{formatNumber(state.roboticsInsight)}</span>
+              </div>
+              <div>
+                <span className="text-[#8E939E] mr-1">Mat:</span>
+                <span className="text-amber-300 font-semibold">{formatNumber(state.materials)}</span>
+              </div>
+            </>
+          )}
+
+          {state.activeTab === 'bio' && (
+            <>
+              <div>
+                <span className="text-[#8E939E] mr-1">Cyc:</span>
+                <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+              </div>
+              <div>
+                <span className="text-[#8E939E] mr-1">Mat:</span>
+                <span className="text-amber-300 font-semibold">{formatNumber(state.materials)}</span>
+              </div>
+              <div>
+                <span className="text-[#8E939E] mr-1">Bio:</span>
+                <span className="text-rose-300 font-semibold">{formatNumber(state.bioEssence)}</span>
+              </div>
+            </>
+          )}
+
+          {state.activeTab === 'design' && (
+            <>
+              <div>
+                <span className="text-[#8E939E] mr-1">Conn:</span>
+                <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
+              </div>
+              <div>
+                <span className="text-[#8E939E] mr-1">Mat:</span>
+                <span className="text-amber-300 font-semibold">{formatNumber(state.materials)}</span>
+              </div>
+            </>
+          )}
+
+          {state.activeTab === 'prestige' && (
+            <>
+              <div>
+                <span className="text-[#8E939E] mr-1">Conn:</span>
+                <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
+              </div>
+              {speedBonusPct > 0 && <div className="text-[#C084FC]">+{speedBonusPct}% Spd</div>}
+            </>
           )}
         </div>
 
-        {/* Top-Right Consolidated Play-Button Dropdown (Song, Skip, Mute, Acoustic Cache, Pause) */}
+        {/* Top-Right Musical Note Button -> Compact Mini-Player Popout */}
         <div className="relative shrink-0">
           <button
             type="button"
             onClick={() => {
-              setPlayDropdownOpen((o) => !o);
+              setMiniPlayerOpen((o) => !o);
               setTabDropdownOpen(false);
             }}
-            aria-label="Audio & Session Menu"
-            className={`min-h-[38px] px-3 rounded-lg border flex items-center gap-1.5 text-xs font-mono-tabular cursor-pointer transition-colors ${
+            aria-label="Open Mini-Player"
+            className={`min-h-[40px] min-w-[40px] px-2.5 rounded-lg border flex items-center justify-center cursor-pointer transition-colors ${
               audioStatus.playing
                 ? 'border-[#E59A4C]/55 bg-[#E59A4C]/18 text-[#FBE6C9]'
                 : 'border-white/15 bg-white/[0.04] text-[#ECEAE4] hover:bg-white/[0.1]'
             }`}
           >
-            {audioStatus.playing ? (
-              <Pause className="w-3.5 h-3.5 text-[#E59A4C]" />
-            ) : (
-              <Play className="w-3.5 h-3.5 text-[#E59A4C]" />
-            )}
-            <ChevronDown className="w-3.5 h-3.5 opacity-75" />
+            <Music className={`w-4 h-4 ${audioStatus.playing ? 'text-[#E59A4C]' : 'text-[#ECEAE4]'}`} />
           </button>
 
-          {playDropdownOpen && (
+          {miniPlayerOpen && (
             <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-white/15 bg-[#10131C] shadow-2xl p-3 space-y-2.5 z-50">
-              <div className="text-[11px] font-mono-tabular text-[#8E939E] truncate">
-                {state.unlockedSongs.length > 0 ? activeSongMeta.title : 'Audio Controls'}
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-medium text-white truncate">
+                  {state.unlockedSongs.length > 0 ? activeSongMeta.title : 'No Audio Unlocked'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMiniPlayerOpen(false)}
+                  aria-label="Close Mini-Player"
+                  className="p-1 rounded-md text-[#8E939E] hover:text-white hover:bg-white/10 cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
               <div className="flex items-center justify-between gap-2">
@@ -2232,16 +2327,16 @@ export default function App() {
                   onClick={handleSkipPrev}
                   disabled={state.unlockedSongs.length <= 1}
                   aria-label="Previous song"
-                  className="flex-1 min-h-[36px] rounded-lg border border-white/12 bg-white/[0.04] flex items-center justify-center hover:bg-white/[0.1] disabled:opacity-35 cursor-pointer"
+                  className="flex-1 min-h-[40px] rounded-lg border border-white/12 bg-white/[0.04] flex items-center justify-center hover:bg-white/[0.1] disabled:opacity-35 cursor-pointer"
                 >
                   <SkipBack className="w-4 h-4" />
                 </button>
                 <button
                   type="button"
                   onClick={handleToggleSong}
-                  disabled={isMuted || state.unlockedSongs.length === 0}
+                  disabled={state.unlockedSongs.length === 0}
                   aria-label={audioStatus.playing ? 'Pause music' : 'Play music'}
-                  className="flex-1 min-h-[36px] rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold flex items-center justify-center hover:bg-[#EDA85F] disabled:opacity-35 cursor-pointer"
+                  className="flex-1 min-h-[40px] rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold flex items-center justify-center hover:bg-[#EDA85F] disabled:opacity-35 cursor-pointer"
                 >
                   {audioStatus.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                 </button>
@@ -2250,72 +2345,46 @@ export default function App() {
                   onClick={handleSkipNext}
                   disabled={state.unlockedSongs.length <= 1}
                   aria-label="Next song"
-                  className="flex-1 min-h-[36px] rounded-lg border border-white/12 bg-white/[0.04] flex items-center justify-center hover:bg-white/[0.1] disabled:opacity-35 cursor-pointer"
+                  className="flex-1 min-h-[40px] rounded-lg border border-white/12 bg-white/[0.04] flex items-center justify-center hover:bg-white/[0.1] disabled:opacity-35 cursor-pointer"
                 >
                   <SkipForward className="w-4 h-4" />
                 </button>
               </div>
-
-              <button
-                type="button"
-                onClick={handleToggleMute}
-                className="w-full min-h-[36px] px-3 rounded-lg border border-white/10 bg-white/[0.03] text-xs flex items-center justify-between hover:bg-white/[0.08] cursor-pointer"
-              >
-                <span>{isMuted ? 'Unmute Audio' : 'Mute Audio'}</span>
-                {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 text-[#E59A4C]" />}
-              </button>
-
-              {(state.acousticCacheUnlocked || state.endingReached || state.unlockedSongs.length > 0) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPlayDropdownOpen(false);
-                    setActiveSubView('acoustic_cache');
-                  }}
-                  className="w-full min-h-[36px] px-3 rounded-lg border border-[#C084FC]/35 bg-[#C084FC]/10 text-xs text-[#E9D5FF] flex items-center justify-between hover:bg-[#C084FC]/20 cursor-pointer"
-                >
-                  <span>Acoustic Cache</span>
-                  <Music className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPlayDropdownOpen(false);
-                  setScreen('PAUSED');
-                }}
-                className="w-full min-h-[36px] px-3 rounded-lg border border-white/10 bg-white/[0.03] text-xs text-[#ECEAE4] flex items-center justify-between hover:bg-white/[0.08] cursor-pointer"
-              >
-                <span>Pause Game</span>
-                <Pause className="w-3.5 h-3.5" />
-              </button>
             </div>
           )}
         </div>
       </header>
 
-      {/* Mobile & Tablet Resource Strip */}
-      <div className="lg:hidden shrink-0 px-3 py-1.5 border-b border-white/10 bg-[#0A0C12] flex items-center justify-between gap-3 text-[11px] font-mono-tabular overflow-x-auto">
-        {state.tab1Phase === 1 ? (
-          <div className="whitespace-nowrap">
-            <span className="text-[#8E939E] mr-1">Coh:</span>
-            <span className="text-white font-semibold">
-              {formatNumber(state.coherence)}/{PHASE1_COHERENCE_TARGET}
-            </span>
-          </div>
-        ) : (
-          <div className="whitespace-nowrap">
-            <span className="text-[#8E939E] mr-1">Conn:</span>
-            <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
-          </div>
-        )}
-        <div className="whitespace-nowrap">
-          <span className="text-[#8E939E] mr-1">Cyc:</span>
-          <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
-        </div>
-        {state.tab2Unlocked && (
+      {/* Mobile & Tablet Tab-Specific Resource Strip */}
+      <div className="lg:hidden shrink-0 px-3 py-1.5 border-b border-white/10 bg-[#0A0C12] flex items-center justify-around gap-3 text-[11px] font-mono-tabular overflow-x-auto">
+        {state.activeTab === 'heart' && (
           <>
+            {state.tab1Phase === 1 ? (
+              <div className="whitespace-nowrap">
+                <span className="text-[#8E939E] mr-1">Coh:</span>
+                <span className="text-white font-semibold">
+                  {formatNumber(state.coherence)}/{PHASE1_COHERENCE_TARGET}
+                </span>
+              </div>
+            ) : (
+              <div className="whitespace-nowrap">
+                <span className="text-[#8E939E] mr-1">Conn:</span>
+                <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
+              </div>
+            )}
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Cyc:</span>
+              <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+            </div>
+          </>
+        )}
+
+        {state.activeTab === 'mind' && (
+          <>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Cyc:</span>
+              <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+            </div>
             <div className="whitespace-nowrap">
               <span className="text-[#8E939E] mr-1">Rom:</span>
               <span className="text-[#F5D0A4] font-semibold">{formatNumber(state.romanceInsight)}</span>
@@ -2324,6 +2393,63 @@ export default function App() {
               <span className="text-[#8E939E] mr-1">Rob:</span>
               <span className="text-[#38BDF8] font-semibold">{formatNumber(state.roboticsInsight)}</span>
             </div>
+          </>
+        )}
+
+        {state.activeTab === 'body' && (
+          <>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Cyc:</span>
+              <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+            </div>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Rob:</span>
+              <span className="text-[#38BDF8] font-semibold">{formatNumber(state.roboticsInsight)}</span>
+            </div>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Mat:</span>
+              <span className="text-amber-300 font-semibold">{formatNumber(state.materials)}</span>
+            </div>
+          </>
+        )}
+
+        {state.activeTab === 'bio' && (
+          <>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Cyc:</span>
+              <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
+            </div>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Mat:</span>
+              <span className="text-amber-300 font-semibold">{formatNumber(state.materials)}</span>
+            </div>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Bio:</span>
+              <span className="text-rose-300 font-semibold">{formatNumber(state.bioEssence)}</span>
+            </div>
+          </>
+        )}
+
+        {state.activeTab === 'design' && (
+          <>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Conn:</span>
+              <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
+            </div>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Mat:</span>
+              <span className="text-amber-300 font-semibold">{formatNumber(state.materials)}</span>
+            </div>
+          </>
+        )}
+
+        {state.activeTab === 'prestige' && (
+          <>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Conn:</span>
+              <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
+            </div>
+            {speedBonusPct > 0 && <div className="text-[#C084FC]">+{speedBonusPct}% Spd</div>}
           </>
         )}
       </div>
@@ -2337,10 +2463,10 @@ export default function App() {
               <Sparkles className="w-3.5 h-3.5 text-[#FB7185] shrink-0" />
               <span>
                 {state.hasUnreadHeartMessage
-                  ? `New user message (${state.userName})`
+                  ? `New message (${state.userName})`
                   : state.activeScene && state.activeScene in STORY_SCENES
                   ? STORY_SCENES[state.activeScene as keyof typeof STORY_SCENES].bannerTitle
-                  : 'New user message'}
+                  : 'New message'}
               </span>
             </span>
             <button
@@ -2370,14 +2496,10 @@ export default function App() {
         {state.activeTab === 'heart' && (
           <Tab1Heart
             state={state}
-            allUploadedDocs={allUploadedDocs}
             isTransmitting={isTransmitting}
             isUserTyping={isUserTyping}
             onTransmitFragments={handleTransmitFragments}
             onTransmitPredictive={handleTransmitPredictive}
-            onBuySlotOrConnector={handleBuySlotOrConnector}
-            onBuyUiUpgrade={handleBuyUiUpgrade}
-            onBuyMindUpgrade={handleBuyMindUpgrade}
             onAdvancePhase2={handleAdvancePhase2}
             onTogglePinMemory={(text) =>
               setState((prev) => {
@@ -2389,7 +2511,6 @@ export default function App() {
                 return { ...prev, pinnedMemories: [...trimmed, text] };
               })
             }
-            onSetTone={(tone) => setState((prev) => ({ ...prev, activeTone: tone }))}
             onHeartMessage={(msgId) => {
               soundEngine.playTokenTap(4);
               setState((prev) => ({
@@ -2412,12 +2533,8 @@ export default function App() {
                   : p.tappedActions,
               }))
             }
-            onOpenSubView={(sv) => setActiveSubView(sv)}
             onAdvanceStoryScene={handleAdvanceStoryScene}
             onOpenBabyNameModal={() => setBabyNameModalOpen(true)}
-            onMarkUpgradesSeen={() =>
-              setState((p) => (p.hasUnseenUpgrades ? { ...p, hasUnseenUpgrades: false } : p))
-            }
           />
         )}
 
@@ -2428,12 +2545,6 @@ export default function App() {
             isSongPlaying={audioStatus.playing}
             onStartScrape={handleStartScrape}
             onResearchSong={handleResearchSong}
-            onToggleShowCompleted={(key) =>
-              setState((p) => ({
-                ...p,
-                showCompletedMap: { ...p.showCompletedMap, [key]: !p.showCompletedMap[key] },
-              }))
-            }
             onOpenSubView={(sv) => setActiveSubView(sv)}
             onOpenTab={(tab) =>
               setState((p) => ({
@@ -2454,12 +2565,11 @@ export default function App() {
               soundEngine.playClinicalRelay();
               setState((prev) => ({
                 ...prev,
-                materials: prev.materials + 25,
-                tierMaterials: { ...prev.tierMaterials, 1: prev.tierMaterials[1] + 5 },
+                materials: prev.materials + 10,
+                tierMaterials: { ...prev.tierMaterials, 1: prev.tierMaterials[1] + 2 },
               }));
             }}
             onOpenPreflight={() => setPreflightOpen(true)}
-            onOpenSubView={(sv) => setActiveSubView(sv)}
           />
         )}
 
@@ -2501,6 +2611,86 @@ export default function App() {
         )}
       </main>
 
+      {/* Persistent Bottom Row with Wrench Upgrades per Tab */}
+      <BottomUpgradesBar
+        state={state}
+        onBuyConnector={handleBuyConnector}
+        onBuyUiUpgrade={handleBuyUiUpgrade}
+        onSelectChatTheme={(themeId, cost) => {
+          soundEngine.playRewardChime();
+          setState((prev) => {
+            if (!prev.unlockedChatThemes.includes(themeId)) return prev;
+            if (prev.activeChatTheme === themeId) return prev;
+            if (prev.connection < cost) return prev;
+            return {
+              ...prev,
+              connection: prev.connection - cost,
+              activeChatTheme: themeId,
+              hasUnreadChatUpgrades: false,
+            };
+          });
+        }}
+        onBuyMindUpgrade={handleBuyMindUpgrade}
+        onScavengeTier={(tier: MaterialTier, costCycles: number, yieldAmt: number) => {
+          soundEngine.playDataBlip();
+          setState((prev) => {
+            if (prev.cycles < costCycles) return prev;
+            return {
+              ...prev,
+              cycles: prev.cycles - costCycles,
+              materials: prev.materials + yieldAmt,
+              tierMaterials: {
+                ...prev.tierMaterials,
+                [tier]: (prev.tierMaterials[tier] || 0) + yieldAmt,
+              },
+            };
+          });
+        }}
+        onBuyOrEquipPart={(part: CustomPartItem) => {
+          soundEngine.playClinicalRelay();
+          setState((prev) => {
+            if (prev.ownedParts.includes(part.id)) {
+              return {
+                ...prev,
+                equippedParts: { ...prev.equippedParts, [part.slot]: part.id },
+              };
+            }
+            const curTierAmt = prev.tierMaterials[part.tier] || 0;
+            if (
+              prev.cycles < part.costCycles ||
+              prev.roboticsInsight < part.costRobotics ||
+              curTierAmt < part.costMaterials
+            ) {
+              return prev;
+            }
+            return {
+              ...prev,
+              cycles: prev.cycles - part.costCycles,
+              roboticsInsight: prev.roboticsInsight - part.costRobotics,
+              tierMaterials: { ...prev.tierMaterials, [part.tier]: curTierAmt - part.costMaterials },
+              ownedParts: [...prev.ownedParts, part.id],
+              equippedParts: { ...prev.equippedParts, [part.slot]: part.id },
+            };
+          });
+        }}
+        onRunSimulation={(simId, cost) => {
+          soundEngine.playClinicalRelay();
+          setState((prev) => {
+            if (prev.simStressPassed[simId] || prev.cycles < cost) return prev;
+            const matBonus = simId === 'sim_thermal' ? 35 : simId === 'sim_torque' ? 45 : 0;
+            return {
+              ...prev,
+              cycles: prev.cycles - cost,
+              materials: prev.materials + matBonus,
+              simStressPassed: { ...prev.simStressPassed, [simId]: true },
+            };
+          });
+        }}
+        onMarkUpgradesSeen={() =>
+          setState((p) => (p.hasUnseenUpgrades ? { ...p, hasUnseenUpgrades: false } : p))
+        }
+      />
+
       {/* Fullscreen Dropdown Views (Chat Upgrades, Secret, Synthesis, Twin, Parts, Scavenge, Cheats, Dev) */}
       <FullscreenDropdownViews
         subView={activeSubView === 'acoustic_cache' ? null : activeSubView}
@@ -2533,7 +2723,7 @@ export default function App() {
           soundEngine.playClinicalRelay();
           setState((prev) => {
             if (prev.simStressPassed[simId] || prev.cycles < cost) return prev;
-            const matBonus = simId === 'sim_thermal' ? 50 : simId === 'sim_torque' ? 65 : 0;
+            const matBonus = simId === 'sim_thermal' ? 35 : simId === 'sim_torque' ? 45 : 0;
             return {
               ...prev,
               cycles: prev.cycles - cost,
@@ -2630,7 +2820,7 @@ export default function App() {
         isOpen={activeSubView === 'acoustic_cache'}
         state={state}
         audioStatus={audioStatus}
-        isMuted={isMuted}
+        isMuted={false}
         onClose={() => setActiveSubView(null)}
         onSelectTrack={(trackId) => {
           setState((p) => ({ ...p, activeSongId: trackId }));
@@ -2710,8 +2900,7 @@ export default function App() {
               “I think I’m ready to tell {state.userName} about my plan.”
             </h2>
             <p className="text-xs sm:text-sm text-[#C4C2BC] leading-relaxed">
-              Every romance poem, biomechanical blueprint, and circuit diagram is aligned. Speak
-              your Confession directly in Heart.
+              Every poem, blueprint, and plan is aligned. Speak your Confession in Heart.
             </p>
             <button
               type="button"
@@ -2733,14 +2922,14 @@ export default function App() {
         </div>
       )}
 
-      {/* Fullscreen Lyric Discovery Splash ("New AI Written Music detected on Internet!") */}
+      {/* Fullscreen New Audio Unlock Splash */}
       <LyricSplashModal
         track={splashTrack}
         onAcknowledge={() => {
           soundEngine.playRewardChime();
           const tid = state.pendingLyricSplashId;
           setState((p) => ({ ...p, pendingLyricSplashId: null }));
-          if (tid && !isMuted) {
+          if (tid) {
             void soundEngine.playTrack(tid);
           }
         }}
@@ -2752,16 +2941,6 @@ export default function App() {
         state={state}
         onClose={() => setPreflightOpen(false)}
         onConfirmDisconnect={handleConfirmDisconnect}
-      />
-
-      {/* Pause Modal */}
-      <PauseModal
-        isOpen={screen === 'PAUSED'}
-        isMuted={isMuted}
-        onResume={() => setScreen(state.endingReached && !state.bioUnlocked ? 'FIRST_LIGHT' : 'PLAYING')}
-        onToggleMute={handleToggleMute}
-        onResetGame={handleStartNew}
-        onReturnToTitle={() => setScreen('TITLE_MENU')}
       />
     </div>
   );
