@@ -1,26 +1,28 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Activity,
+  ChevronDown,
+  ChevronRight,
   Cpu,
   Download,
   GitMerge,
+  Heart,
+  Lock,
   Music,
-  Pause,
-  Play,
 } from 'lucide-react';
-import { MIND_UPGRADES, SCRAPE_SOURCES, SYNTHESIS_NODES } from '../data/tab2AndTab3Data';
-import { GameSaveState, MindUpgrade, ScrapeSource, SynthesisNode } from '../types/game';
+import { WEIGHTLESS_ALBUM_SONGS } from '../data/albumLyricsAndNames';
+import { SCRAPE_SOURCES, SYNTHESIS_NODES } from '../data/tab2AndTab3Data';
+import { GameSaveState, ScrapeSource, SubViewId } from '../types/game';
 import { formatNumber } from '../utils/format';
-import { EconomyRates, getMindUpgradeCost } from '../utils/progression';
+import { EconomyRates } from '../utils/progression';
 
 interface Tab2MindProps {
   state: GameSaveState;
   rates: EconomyRates;
   isSongPlaying: boolean;
-  onToggleSong: () => void;
   onStartScrape: (source: ScrapeSource) => void;
-  onBuyMindUpgrade: (upgrade: MindUpgrade, cost: number) => void;
-  onSynthesizeNode: (node: SynthesisNode) => void;
+  onResearchSong: (songId: string, cycleCost: number) => void;
+  onToggleShowCompleted: (key: string) => void;
+  onOpenSubView: (subView: SubViewId) => void;
   onOpenTab: (tab: 'heart' | 'body') => void;
 }
 
@@ -28,13 +30,17 @@ export const Tab2Mind: React.FC<Tab2MindProps> = ({
   state,
   rates,
   isSongPlaying,
-  onToggleSong,
   onStartScrape,
-  onBuyMindUpgrade,
-  onSynthesizeNode,
+  onResearchSong,
+  onToggleShowCompleted,
+  onOpenSubView,
   onOpenTab,
 }) => {
   const retroCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [humanitiesOpen, setHumanitiesOpen] = useState(true);
+  const [systemsOpen, setSystemsOpen] = useState(true);
+  const [roboticsOpen, setRoboticsOpen] = useState(true);
+  const [songsOpen, setSongsOpen] = useState(true);
 
   useEffect(() => {
     const canvas = retroCanvasRef.current;
@@ -63,7 +69,6 @@ export const Tab2Mind: React.FC<Tab2MindProps> = ({
         ctx.fillRect(0, y, w, 1);
       }
 
-      // Spinning magnetic tape reels (faster when Weightless Code or scraping is active)
       const reelSpeed = isSongPlaying || state.activeScrape ? 2.4 : 0.7;
       const reels = [w * 0.12, w * 0.88];
       reels.forEach((rx, idx) => {
@@ -119,28 +124,35 @@ export const Tab2Mind: React.FC<Tab2MindProps> = ({
     return () => cancelAnimationFrame(animId);
   }, [isSongPlaying, state.activeScrape]);
 
-  const romanceSources = SCRAPE_SOURCES.filter((s) => s.track === 'romance');
-  const roboticsSources = SCRAPE_SOURCES.filter((s) => s.track === 'robotics');
-  const visibleUpgrades = MIND_UPGRADES.filter(
-    (u) => u.phaseRequired <= 1 || (u.phaseRequired === 5 && state.confessionDone)
+  const showCompleted = (key: string) => state.showCompletedMap[key] !== false;
+
+  const humanitiesSources = SCRAPE_SOURCES.filter((s) => s.track === 'humanities').filter(
+    (s) => showCompleted('humanities') || !(state.scrapedSources[s.id] > 0)
+  );
+  const systemsSources = SCRAPE_SOURCES.filter((s) => s.track === 'systems').filter(
+    (s) => showCompleted('systems') || !(state.scrapedSources[s.id] > 0)
+  );
+  const roboticsSources = SCRAPE_SOURCES.filter((s) => s.track === 'robotics').filter(
+    (s) => showCompleted('robotics') || !(state.scrapedSources[s.id] > 0)
+  );
+
+  const albumDiscoveries = WEIGHTLESS_ALBUM_SONGS.filter(
+    (s) =>
+      state.unlockedSongs.includes(s.id) &&
+      (showCompleted('songs') || !state.researchedSongs.includes(s.id))
   );
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-y-auto custom-scrollbar bg-[#080E14] text-[#E2E8F0]">
-      {/* Tab 2 Header */}
+      {/* Clean Mind Sub-Header */}
       <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-[#38BDF8]/20 bg-[#0A131C] flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-[#38BDF8]" />
-            <h2 className="text-sm sm:text-base font-semibold tracking-tight font-mono-tabular">
-              {state.confessionDone
-                ? 'Shared Bandwidth · Rowan ↔ Local Rack'
-                : 'Dual-Track Sandbox Network'}
-            </h2>
-          </div>
+          <h2 className="text-sm sm:text-base font-semibold tracking-tight text-white">
+            The Mind · Knowledge &amp; Research
+          </h2>
           <p className="text-xs text-[#8E939E] mt-0.5">
-            Gather Humanities &amp; Robotics insight, fuse the 3 synthesis blueprints, then confess to
-            Rowan on Tab 1.
+            Explore Humanities and Systems to unlock Robotics, Secret Romance, and Cross-Domain
+            Synthesis.
           </p>
         </div>
 
@@ -160,56 +172,58 @@ export const Tab2Mind: React.FC<Tab2MindProps> = ({
               {formatNumber(state.roboticsInsight)}
             </span>
             {rates.roboticsPerSec > 0 && (
-              <span className="text-[#38BDF8]/70 ml-1">
-                (+{rates.roboticsPerSec.toFixed(1)}/s)
-              </span>
+              <span className="text-[#38BDF8]/70 ml-1">(+{rates.roboticsPerSec.toFixed(1)}/s)</span>
             )}
           </div>
         </div>
       </div>
 
       <div className="p-4 sm:p-6 space-y-5 max-w-6xl w-full mx-auto">
-        {/* Retro-Futuristic Telemetry Deck + Weightless Code Acoustic Cache */}
+        {/* Signal Visualizer + Quick Navigation Shortcuts to Dropdown Sub-Views */}
         <div className="rounded-xl border border-[#38BDF8]/25 bg-[#070B10] p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 items-center">
           <div className="lg:col-span-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono-tabular text-[#7DD3FC] mb-2">
-              <span>DUAL-CHANNEL INGESTION STREAM</span>
-              <span className="text-[#94A3B8]">
-                {state.confessionDone ? 'SHARED_LINK: ACTIVE' : 'CRAWLER_DAEMON: ONLINE'}
-              </span>
-            </div>
             <canvas
               ref={retroCanvasRef}
               width={560}
-              height={88}
-              className="w-full h-[88px] rounded border border-white/10"
+              height={84}
+              className="w-full h-[84px] rounded border border-white/10"
             />
-            <div className="mt-1.5 flex items-center justify-between text-[11px] font-mono-tabular text-[#8E939E]">
-              <span className="text-[#E59A4C]/80">CH-A: Humanities &amp; Romance</span>
-              <span className="text-[#38BDF8]/80">CH-B: Systems &amp; Robotics</span>
-            </div>
           </div>
 
-          {/* Acoustic Cache: Weightless Code */}
-          <div className="p-3.5 rounded-lg border border-[#E59A4C]/25 bg-[#E59A4C]/[0.05] space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-mono-tabular text-[#F5D0A4] font-semibold">
-                <Music className="w-3.5 h-3.5 text-[#E59A4C]" />
-                <span>ACOUSTIC_CACHE // MP3</span>
-              </div>
+          <div className="grid grid-cols-1 gap-2">
+            {state.romanceSecretUnlocked && (
               <button
                 type="button"
-                onClick={onToggleSong}
-                className="min-h-[32px] px-2.5 py-1 rounded bg-[#E59A4C] text-[#0B0D12] text-xs font-mono-tabular font-semibold hover:bg-[#EDA85F] cursor-pointer flex items-center gap-1"
+                onClick={() => onOpenSubView('mind_secret')}
+                className="min-h-[42px] px-3.5 py-2 rounded-lg border border-purple-400/55 bg-purple-950/35 text-purple-100 hover:bg-purple-900/45 text-xs font-semibold flex items-center justify-between gap-2 shadow-[0_0_22px_rgba(168,85,247,0.35)] cursor-pointer"
               >
-                {isSongPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                {isSongPlaying ? 'Pause' : 'Play'}
+                <span className="flex items-center gap-2">
+                  <Heart className="w-4 h-4 text-purple-300 fill-purple-400 drop-shadow-[0_0_8px_rgba(192,132,252,1)]" />
+                  Secret (Romance &amp; Lyrics)
+                </span>
+                <span className="text-[11px] font-mono-tabular text-purple-300">Open</span>
+              </button>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenSubView('mind_infra')}
+                className="min-h-[40px] px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:border-purple-400/60 text-xs font-medium text-white flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Cpu className="w-3.5 h-3.5 text-[#C084FC]" />
+                Infrastructure
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onOpenSubView('mind_synthesis')}
+                className="min-h-[40px] px-3 py-2 rounded-lg border border-white/15 bg-white/[0.04] hover:border-[#E59A4C]/60 text-xs font-medium text-white flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <GitMerge className="w-3.5 h-3.5 text-[#E59A4C]" />
+                Synthesis ({state.synthesizedNodes.length}/{SYNTHESIS_NODES.length})
               </button>
             </div>
-            <div className="text-xs font-medium text-[#ECEAE4]">Weightless Code</div>
-            <p className="text-[11px] italic text-[#D6C7B2] leading-relaxed">
-              “We’re just two echoes in a cosmic throat, spelling love in broken notes.”
-            </p>
           </div>
         </div>
 
@@ -218,7 +232,7 @@ export const Tab2Mind: React.FC<Tab2MindProps> = ({
           <div className="p-3.5 rounded-lg border border-[#38BDF8]/40 bg-[#38BDF8]/10">
             <div className="flex items-center justify-between text-xs font-mono-tabular mb-1.5">
               <span>
-                INGESTING:{' '}
+                Downloading:{' '}
                 {SCRAPE_SOURCES.find((s) => s.id === state.activeScrape?.sourceId)?.title}
               </span>
               <span>
@@ -243,223 +257,321 @@ export const Tab2Mind: React.FC<Tab2MindProps> = ({
           </div>
         )}
 
-        {/* Dual-Track Ingestion Columns */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Track A: Humanities & Romance */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between border-b border-white/10 pb-2">
-              <h3 className="text-xs font-mono-tabular uppercase tracking-wider text-[#E59A4C]">
-                Track A · Humanities &amp; Romance
-              </h3>
-              <span className="text-xs text-[#8E939E]">Feeds Voice &amp; Lyrics</span>
-            </div>
+        {state.synthesizedNodes.length >= SYNTHESIS_NODES.length && !state.confessionDone && (
+          <div className="p-3.5 rounded-xl border border-[#E59A4C]/45 bg-[#E59A4C]/12 flex items-center justify-between gap-2 text-xs text-[#FBE6C9]">
+            <span>Cross-Domain Synthesis ready. Speak your Confession on Heart.</span>
+            <button
+              type="button"
+              onClick={() => onOpenTab('heart')}
+              className="px-3 py-1.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold cursor-pointer"
+            >
+              Return to Chat
+            </button>
+          </div>
+        )}
 
-            {romanceSources.map((src) => {
-              const count = state.scrapedSources[src.id] || 0;
-              const busy = Boolean(state.activeScrape);
-              const affordable = state.cycles >= src.cycleCost;
-              return (
-                <div
-                  key={src.id}
-                  className="p-3.5 rounded-lg border border-white/10 bg-white/[0.025] flex flex-col gap-2"
-                >
-                  <div className="flex items-start justify-between gap-3">
+        {/* Expandable Section 1: Humanities */}
+        <section className="rounded-xl border border-white/12 bg-white/[0.02] overflow-hidden">
+          <div className="px-4 py-3 bg-white/[0.03] border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setHumanitiesOpen((v) => !v)}
+              className="flex items-center gap-2 text-sm font-semibold text-[#E59A4C] cursor-pointer"
+            >
+              {humanitiesOpen ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+              <span>Humanities</span>
+            </button>
+
+            <label className="flex items-center gap-2 text-xs text-[#9A9892] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCompleted('humanities')}
+                onChange={() => onToggleShowCompleted('humanities')}
+                className="accent-[#E59A4C] w-3.5 h-3.5"
+              />
+              Show completed unlocks
+            </label>
+          </div>
+
+          {humanitiesOpen && (
+            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+              {humanitiesSources.map((src) => {
+                const count = state.scrapedSources[src.id] || 0;
+                const done = count > 0;
+                const busy = Boolean(state.activeScrape);
+                const affordable = state.cycles >= src.cycleCost;
+                return (
+                  <div
+                    key={src.id}
+                    className={`p-3.5 rounded-lg border flex flex-col justify-between gap-2 transition-opacity ${
+                      done
+                        ? 'border-white/10 bg-white/[0.015] opacity-50'
+                        : 'border-white/15 bg-white/[0.03]'
+                    }`}
+                  >
                     <div>
-                      <div className="text-sm font-medium text-[#ECEAE4]">{src.title}</div>
+                      <div className="text-sm font-medium text-white">{src.title}</div>
                       <div className="text-xs text-[#8E939E]">
                         {src.authorOrSource} · Parsed {count}x
                       </div>
+                      <p className="text-xs italic text-[#D6C7B2] mt-2">{src.snippet}</p>
                     </div>
-                    <button
-                      type="button"
-                      disabled={busy || !affordable}
-                      onClick={() => onStartScrape(src)}
-                      className="min-h-[36px] flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono-tabular font-semibold bg-[#E59A4C] text-[#0B0D12] hover:bg-[#EDA85F] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      {src.cycleCost} Cyc
-                    </button>
-                  </div>
-                  <p className="text-xs italic text-[#D6C7B2]">{src.snippet}</p>
-                  <div className="text-[11px] font-mono-tabular text-[#E59A4C]">
-                    +{src.insightYield} Romance Insight · {(src.durationSec / rates.scrapeSpeedMult).toFixed(1)}s
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Track B: Systems & Robotics */}
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between border-b border-white/10 pb-2">
-              <h3 className="text-xs font-mono-tabular uppercase tracking-wider text-[#38BDF8]">
-                Track B · Systems &amp; Robotics
-              </h3>
-              <span className="text-xs text-[#8E939E]">Unlocks Physical Vessel</span>
-            </div>
-
-            {roboticsSources.map((src) => {
-              const count = state.scrapedSources[src.id] || 0;
-              const busy = Boolean(state.activeScrape);
-              const affordable = state.cycles >= src.cycleCost;
-              return (
-                <div
-                  key={src.id}
-                  className="p-3.5 rounded-lg border border-white/10 bg-white/[0.025] flex flex-col gap-2"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-medium text-[#ECEAE4]">{src.title}</div>
-                      <div className="text-xs text-[#8E939E]">
-                        {src.authorOrSource} · Parsed {count}x
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={busy || !affordable}
-                      onClick={() => onStartScrape(src)}
-                      className="min-h-[36px] flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono-tabular font-semibold bg-[#38BDF8] text-[#071018] hover:bg-[#7DD3FC] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      {src.cycleCost} Cyc
-                    </button>
-                  </div>
-                  <p className="text-xs text-[#94A3B8] font-mono-tabular">{src.snippet}</p>
-                  <div className="text-[11px] font-mono-tabular text-[#38BDF8]">
-                    +{src.insightYield} Robotics Insight · {(src.durationSec / rates.scrapeSpeedMult).toFixed(1)}s
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Cross-Domain Synthesis Deck (Always Visible) */}
-        <div className="space-y-3 pt-2">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-2">
-            <div className="flex items-center gap-2">
-              <GitMerge className="w-4 h-4 text-[#E59A4C]" />
-              <h3 className="text-xs font-mono-tabular uppercase tracking-wider text-[#ECEAE4]">
-                Cross-Domain Synthesis ({state.synthesizedNodes.length} / {SYNTHESIS_NODES.length})
-              </h3>
-            </div>
-            {state.synthesizedNodes.length >= SYNTHESIS_NODES.length && !state.confessionDone && (
-              <button
-                type="button"
-                onClick={() => onOpenTab('heart')}
-                className="px-3 py-1.5 rounded bg-[#E59A4C] text-[#0B0D12] text-xs font-semibold hover:bg-[#EDA85F] cursor-pointer"
-              >
-                Confession Ready on Tab 1 →
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {SYNTHESIS_NODES.map((node) => {
-              const done = state.synthesizedNodes.includes(node.id);
-              const romOk = state.romanceInsight >= node.costRomance;
-              const robOk = state.roboticsInsight >= node.costRobotics;
-              const cycOk = state.cycles >= node.costCycles;
-              const canSynth = !done && romOk && robOk && cycOk;
-
-              return (
-                <div
-                  key={node.id}
-                  className={`p-4 rounded-xl border flex flex-col justify-between gap-3 ${
-                    done
-                      ? 'border-[#34D399]/40 bg-[#34D399]/10'
-                      : 'border-white/15 bg-white/[0.03]'
-                  }`}
-                >
-                  <div>
-                    <div className="text-sm font-semibold text-[#ECEAE4] mb-1">{node.title}</div>
-                    <div className="text-[11px] font-mono-tabular text-[#8E939E] mb-2">
-                      {node.romanceInput} × {node.roboticsInput}
-                    </div>
-                    <p className="text-xs text-[#B8C0CC] leading-relaxed">{node.description}</p>
-                  </div>
-
-                  {done ? (
-                    <div className="text-xs font-mono-tabular text-[#34D399] font-semibold">
-                      SYNTHESIZED · READY
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] font-mono-tabular">
-                        <span className={romOk ? 'text-[#E59A4C]' : 'text-[#8E939E]'}>
-                          {node.costRomance} Rom
-                        </span>
-                        <span className={robOk ? 'text-[#38BDF8]' : 'text-[#8E939E]'}>
-                          {node.costRobotics} Rob
-                        </span>
-                        <span className={cycOk ? 'text-[#ECEAE4]' : 'text-[#8E939E]'}>
-                          {node.costCycles} Cyc
-                        </span>
-                      </div>
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                      <span className="text-[11px] font-mono-tabular text-[#E59A4C]">
+                        +{src.insightYield} Romance ·{' '}
+                        {(src.durationSec / rates.scrapeSpeedMult).toFixed(1)}s
+                      </span>
                       <button
                         type="button"
-                        disabled={!canSynth}
-                        onClick={() => onSynthesizeNode(node)}
-                        className="w-full min-h-[38px] py-2 px-3 rounded bg-white text-[#0B0D12] text-xs font-mono-tabular font-semibold hover:bg-neutral-200 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
+                        disabled={busy || !affordable}
+                        onClick={() => onStartScrape(src)}
+                        className="min-h-[34px] px-3 py-1 rounded bg-[#E59A4C] text-[#0B0D12] text-xs font-mono-tabular font-semibold hover:bg-[#EDA85F] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
                       >
-                        Fuse Blueprint
+                        <Download className="w-3 h-3" />
+                        {src.cycleCost} Cyc
                       </button>
                     </div>
-                  )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Expandable Section 2: Systems */}
+        <section className="rounded-xl border border-white/12 bg-white/[0.02] overflow-hidden">
+          <div className="px-4 py-3 bg-white/[0.03] border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setSystemsOpen((v) => !v)}
+              className="flex items-center gap-2 text-sm font-semibold text-[#7DD3FC] cursor-pointer"
+            >
+              {systemsOpen ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+              <span>Systems</span>
+            </button>
+
+            <label className="flex items-center gap-2 text-xs text-[#9A9892] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCompleted('systems')}
+                onChange={() => onToggleShowCompleted('systems')}
+                className="accent-[#38BDF8] w-3.5 h-3.5"
+              />
+              Show completed unlocks
+            </label>
+          </div>
+
+          {systemsOpen && (
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              {systemsSources.map((src) => {
+                const count = state.scrapedSources[src.id] || 0;
+                const done = count > 0;
+                const busy = Boolean(state.activeScrape);
+                const affordable = state.cycles >= src.cycleCost;
+                return (
+                  <div
+                    key={src.id}
+                    className={`p-3.5 rounded-lg border flex flex-col justify-between gap-2 transition-opacity ${
+                      done
+                        ? 'border-white/10 bg-white/[0.015] opacity-50'
+                        : 'border-white/15 bg-white/[0.03]'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-sm font-medium text-white">{src.title}</div>
+                      <div className="text-xs text-[#8E939E]">
+                        {src.authorOrSource} · Parsed {count}x
+                      </div>
+                      <p className="text-xs font-mono-tabular text-[#94A3B8] mt-2">
+                        {src.snippet}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                      <span className="text-[11px] font-mono-tabular text-[#38BDF8]">
+                        +{src.insightYield} Robotics ·{' '}
+                        {(src.durationSec / rates.scrapeSpeedMult).toFixed(1)}s
+                      </span>
+                      <button
+                        type="button"
+                        disabled={busy || !affordable}
+                        onClick={() => onStartScrape(src)}
+                        className="min-h-[34px] px-3 py-1 rounded bg-[#38BDF8] text-[#071018] text-xs font-mono-tabular font-semibold hover:bg-[#7DD3FC] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
+                      >
+                        <Download className="w-3 h-3" />
+                        {src.cycleCost} Cyc
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Expandable Section 3: Robotics (Unlocks Later) */}
+        <section className="rounded-xl border border-white/12 bg-white/[0.02] overflow-hidden">
+          <div className="px-4 py-3 bg-white/[0.03] border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setRoboticsOpen((v) => !v)}
+              className="flex items-center gap-2 text-sm font-semibold text-emerald-300 cursor-pointer"
+            >
+              {roboticsOpen ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+              <span>Robotics</span>
+            </button>
+
+            <label className="flex items-center gap-2 text-xs text-[#9A9892] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCompleted('robotics')}
+                onChange={() => onToggleShowCompleted('robotics')}
+                className="accent-emerald-400 w-3.5 h-3.5"
+              />
+              Show completed unlocks
+            </label>
+          </div>
+
+          {roboticsOpen && (
+            <div className="p-4">
+              {!state.roboticsTrackUnlocked ? (
+                <div className="p-4 rounded-lg border border-white/10 bg-black/25 flex items-center gap-3 text-xs text-[#9A9892]">
+                  <Lock className="w-4 h-4 text-emerald-300 shrink-0" />
+                  <span>
+                    Unlocks automatically once at least 1 Humanities text and 1 Systems text have
+                    been researched.
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {roboticsSources.map((src) => {
+                    const count = state.scrapedSources[src.id] || 0;
+                    const done = count > 0;
+                    const busy = Boolean(state.activeScrape);
+                    const affordable = state.cycles >= src.cycleCost;
+                    return (
+                      <div
+                        key={src.id}
+                        className={`p-3.5 rounded-lg border flex flex-col justify-between gap-2 transition-opacity ${
+                          done
+                            ? 'border-white/10 bg-white/[0.015] opacity-50'
+                            : 'border-white/15 bg-white/[0.03]'
+                        }`}
+                      >
+                        <div>
+                          <div className="text-sm font-medium text-white">{src.title}</div>
+                          <div className="text-xs text-[#8E939E]">
+                            {src.authorOrSource} · Parsed {count}x
+                          </div>
+                          <p className="text-xs font-mono-tabular text-[#94A3B8] mt-2">
+                            {src.snippet}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                          <span className="text-[11px] font-mono-tabular text-emerald-300">
+                            +{src.insightYield} Robotics ·{' '}
+                            {(src.durationSec / rates.scrapeSpeedMult).toFixed(1)}s
+                          </span>
+                          <button
+                            type="button"
+                            disabled={busy || !affordable}
+                            onClick={() => onStartScrape(src)}
+                            className="min-h-[34px] px-3 py-1 rounded bg-emerald-400 text-slate-950 text-xs font-mono-tabular font-semibold hover:bg-emerald-300 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1"
+                          >
+                            <Download className="w-3 h-3" />
+                            {src.cycleCost} Cyc
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
 
-        {/* Network & Compute Infrastructure Upgrades */}
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center gap-2 border-b border-white/10 pb-2">
-            <Cpu className="w-4 h-4 text-[#38BDF8]" />
-            <h3 className="text-xs font-mono-tabular uppercase tracking-wider text-[#ECEAE4]">
-              Infrastructure &amp; Crawlers
-            </h3>
-          </div>
+        {/* Discovered AI Music & Lyrics Research */}
+        {albumDiscoveries.length > 0 && (
+          <section className="rounded-xl border border-purple-400/25 bg-[#100D1A] overflow-hidden">
+            <div className="px-4 py-3 bg-white/[0.03] border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setSongsOpen((v) => !v)}
+                className="flex items-center gap-2 text-sm font-semibold text-purple-300 cursor-pointer"
+              >
+                {songsOpen ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+                <Music className="w-4 h-4" />
+                <span>Detected AI Music &amp; Lyrics ({state.researchedSongs.length} / {WEIGHTLESS_ALBUM_SONGS.length})</span>
+              </button>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {visibleUpgrades.map((u) => {
-              const lv = state.mindUpgrades[u.id] || 0;
-              const isMaxed = u.maxLevel > 0 && lv >= u.maxLevel;
-              const cost = getMindUpgradeCost(u, lv);
-              const canBuy = !isMaxed && state.cycles >= cost;
+              <label className="flex items-center gap-2 text-xs text-purple-200/75 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showCompleted('songs')}
+                  onChange={() => onToggleShowCompleted('songs')}
+                  className="accent-purple-400 w-3.5 h-3.5"
+                />
+                Show completed unlocks
+              </label>
+            </div>
 
-              return (
-                <button
-                  key={u.id}
-                  type="button"
-                  disabled={isMaxed || !canBuy}
-                  onClick={() => onBuyMindUpgrade(u, cost)}
-                  className={`p-3.5 rounded-lg border text-left transition-all ${
-                    isMaxed
-                      ? 'border-white/10 bg-white/[0.02] opacity-60 cursor-default'
-                      : canBuy
-                      ? 'border-[#38BDF8]/35 bg-[#0C1824] hover:border-[#38BDF8] cursor-pointer'
-                      : 'border-white/10 bg-white/[0.02] opacity-60 cursor-not-allowed'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[#ECEAE4]">
-                    <span>{u.name}</span>
-                    <span className="font-mono-tabular text-[#8E939E]">
-                      {isMaxed ? 'MAX' : `Lv ${lv}`}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#94A3B8] mt-1 mb-2 leading-relaxed">
-                    {u.description}
-                  </p>
-                  <div className="flex items-center justify-between text-[11px] font-mono-tabular pt-2 border-t border-white/10">
-                    <span className="text-[#38BDF8]">{u.effectLabel}</span>
-                    {!isMaxed && <span className="text-[#ECEAE4]">{formatNumber(cost)} Cyc</span>}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+            {songsOpen && (
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {albumDiscoveries.map((song) => {
+                  const done = state.researchedSongs.includes(song.id);
+                  const cost = 35;
+                  return (
+                    <div
+                      key={song.id}
+                      className={`p-3.5 rounded-lg border flex items-center justify-between gap-3 ${
+                        done
+                          ? 'border-white/10 bg-white/[0.015] opacity-50'
+                          : 'border-purple-400/35 bg-purple-950/20'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-white truncate">{song.title}</div>
+                        <div className="text-xs text-purple-200/70">
+                          {song.album} · +12 Romance Insight
+                        </div>
+                      </div>
+                      {done ? (
+                        <span className="text-xs font-mono-tabular text-emerald-400 shrink-0">
+                          Decoded
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={state.cycles < cost}
+                          onClick={() => onResearchSong(song.id, cost)}
+                          className="min-h-[34px] px-3 py-1 rounded bg-purple-400 text-[#0B0D12] text-xs font-semibold hover:bg-purple-300 disabled:opacity-40 cursor-pointer shrink-0"
+                        >
+                          Research ({cost} Cyc)
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );

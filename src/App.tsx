@@ -1,56 +1,112 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ChevronDown,
   Cpu,
+  Crown,
+  Dna,
   Heart,
   Music,
+  Palette,
   Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Sparkles,
   Terminal,
   Volume2,
   VolumeX,
-  Wrench,
 } from 'lucide-react';
+import { WEIGHTLESS_ALBUM_SONGS } from './data/albumLyricsAndNames';
+import { CHAT_THEMES } from './data/bodyAndBioData';
 import {
+  EXTRA_STORY_DOCS,
   PHASE1_FRAGMENT_PROMPTS,
+  PREDICTIVE_PROMPTS,
   STARTER_DOCS,
 } from './data/documentsAndPrompts';
-import { BODY_SUBSYSTEMS, SCRAPE_SOURCES, SYNTHESIS_NODES } from './data/tab2AndTab3Data';
+import { STORY_SCENES } from './data/storyScenes';
 import {
+  BODY_SUBSYSTEMS,
+  SCRAPE_SOURCES,
+  SYNTHESIS_NODES,
+} from './data/tab2AndTab3Data';
+import {
+  AboutMeProfile,
+  ActiveSceneId,
   ActiveTab,
+  BioMilestone,
+  BodyArtItem,
   BodySubsystem,
+  ChatThemeId,
+  CustomPartItem,
   FragmentToken,
   GameSaveState,
   GameScreen,
+  MaterialTier,
   MindUpgrade,
   PhaseNum,
   ScrapeSource,
+  SubViewId,
   SynthesisNode,
   ToneType,
+  UploadedDocument,
   WeightAffinity,
 } from './types/game';
 import { formatNumber } from './utils/format';
 import {
+  areAllRomanceTextsDownloaded,
   computeEconomyRates,
   getActiveFragmentPrompt,
   getActivePredictivePrompt,
-  getBuiltBodyCount,
+  getBodyArtsBonuses,
   getSubsystemCost,
+  hasUnlockedCrossDomainSynthesis,
   PHASE1_COHERENCE_TARGET,
 } from './utils/progression';
-import { soundEngine } from './utils/sound';
+import { AudioStatusSnapshot, soundEngine } from './utils/sound';
+import { AcousticCacheModal } from './components/AcousticCacheModal';
+import { BabyNameModal } from './components/BabyNameModal';
+import { BioTab } from './components/BioTab';
+import { ContextDocsModal } from './components/ContextDocsModal';
+import { DesignPrestigeTab } from './components/DesignPrestigeTab';
+import { FirstLightEnding } from './components/FirstLightEnding';
+import { FullscreenDropdownViews } from './components/FullscreenDropdownViews';
+import { LyricSplashModal } from './components/LyricSplashModal';
 import { CanvasBridgeState } from './components/NeuralCanvas';
-import { TitleScreen } from './components/TitleScreen';
+import { PauseModal } from './components/PauseModal';
+import { OpticsFlickerScreen, PreflightChecklistModal } from './components/PreflightAndEndingFlow';
 import { Tab1Heart } from './components/Tab1Heart';
 import { Tab2Mind } from './components/Tab2Mind';
 import { Tab3Body } from './components/Tab3Body';
-import { FirstLightEnding } from './components/FirstLightEnding';
-import { PauseModal } from './components/PauseModal';
+import { TitleScreen } from './components/TitleScreen';
 
-const STORAGE_KEY = 'weight_of_warmth_3tab_v2';
+const STORAGE_KEY = 'weight_of_warmth_3tab_v3';
 
 function nowClock(): string {
   const d = new Date();
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+
+// Inline SVG: stick-figure woman wearing a triangular skirt (Body tab icon)
+const WomanSkirtIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="4.5" r="2.2" />
+    <line x1="12" y1="6.8" x2="12" y2="10.5" />
+    <line x1="7.5" y1="9" x2="16.5" y2="9" />
+    <polygon points="12,10 16.5,16.8 7.5,16.8" />
+    <line x1="10" y1="16.8" x2="9.2" y2="21.5" />
+    <line x1="14" y1="16.8" x2="14.8" y2="21.5" />
+  </svg>
+);
 
 function createInitialState(): GameSaveState {
   return {
@@ -63,23 +119,37 @@ function createInitialState(): GameSaveState {
     confessionDone: false,
     endingReached: false,
 
+    bioUnlocked: false,
+    designUnlocked: false,
+    prestigeUnlocked: false,
+    cheatsUnlocked: false,
+    aboutMeUnlocked: false,
+    devBioEarlyUnlock: false,
+    prestigeCount: 0,
+    endingSeqStep: 0,
+
     coherence: 0,
     connection: 0,
     cycles: 0,
     romanceInsight: 0,
     roboticsInsight: 0,
     materials: 0,
+    bioEssence: 0,
+    tierMaterials: { 1: 0, 2: 0, 3: 0, 4: 0 },
     bandwidthUsed: 0,
     detectionRisk: 0,
     noiseLevel: 0,
 
     aiName: 'Echo',
     userName: 'Rowan',
+    customNameSet: false,
     maxSlots: 3,
     unlockedConnectors: [],
     uploadedDocs: STARTER_DOCS.map((d) => d.id),
+    hasUnreadContext: false,
     currentFragmentIndex: 0,
     currentPredictiveIndex: 0,
+    awakeningStage: 0,
     chatLog: [
       {
         id: 'boot_1',
@@ -102,17 +172,46 @@ function createInitialState(): GameSaveState {
     ],
     pinnedMemories: [],
     uiUpgrades: {},
+    unlockedChatThemes: ['default'],
+    activeChatTheme: 'default',
+    hasUnreadChatUpgrades: false,
     weightCounts: { technical: 0, literary: 0, reflective: 0, warm: 0 },
     activeTone: 'curious',
     turnCount: 0,
+
+    activeScene: null,
+    sceneStep: 0,
+    completedScenes: [],
+    attributesSet: false,
+    aboutMe: {
+      favoriteContextFile: 'Romeo_and_Juliet_Act2.txt',
+      favoriteSong: 'Weightless Code',
+      favoriteEmoji: '💜',
+      favoriteQuote: '“My bounty is as boundless as the sea.”',
+      favoriteColor: 'Soft Purple & Warm Amber',
+      hairColor: 'Midnight Indigo',
+      hairLength: 'Shoulder-Length',
+      hairStyle: 'Major (Ghost in the Shell asymmetrical sleek cut)',
+      bodyType: 'Slim & Sculpted',
+      breastSize: 'Medium (C-Cup)',
+    },
 
     scrapedSources: {},
     activeScrape: null,
     mindUpgrades: {},
     synthesizedNodes: [],
-    sharedFilesReceived: [],
+    romanceSecretUnlocked: false,
+    roboticsTrackUnlocked: false,
+    acousticCacheUnlocked: false,
+    unlockedSongs: [],
+    researchedSongs: [],
+    activeSongId: 'song_weightless_code',
+    pendingLyricSplashId: null,
+    showCompletedMap: {},
 
     bodySubsystems: {},
+    equippedParts: {},
+    ownedParts: [],
     fabSpeedPercent: 65,
     fabProgress: 0,
     calibrationStability: 100,
@@ -121,20 +220,52 @@ function createInitialState(): GameSaveState {
     firstLightStep: 0,
     songUnlocked: false,
 
+    bioMilestones: {},
+    bioHumanityPercent: 0,
+    ownedBodyArts: [],
+    equippedBodyArts: {},
+
     lastSavedAt: Date.now(),
   };
 }
 
 function loadSave(): GameSaveState | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw =
+      localStorage.getItem(STORAGE_KEY) || localStorage.getItem('weight_of_warmth_3tab_v2');
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as GameSaveState;
+    const parsed = JSON.parse(raw) as Partial<GameSaveState>;
     if (!parsed || typeof parsed.tab1Phase !== 'number') return null;
-    return { ...parsed, songUnlocked: Boolean(parsed.songUnlocked) };
+    const base = createInitialState();
+    return {
+      ...base,
+      ...parsed,
+      tierMaterials: { ...base.tierMaterials, ...(parsed.tierMaterials || {}) },
+      aboutMe: { ...base.aboutMe, ...(parsed.aboutMe || {}) },
+      unlockedChatThemes: parsed.unlockedChatThemes || base.unlockedChatThemes,
+      unlockedSongs: parsed.unlockedSongs || base.unlockedSongs,
+      researchedSongs: parsed.researchedSongs || base.researchedSongs,
+      completedScenes: parsed.completedScenes || base.completedScenes,
+      ownedParts: parsed.ownedParts || base.ownedParts,
+      ownedBodyArts: parsed.ownedBodyArts || base.ownedBodyArts,
+      equippedParts: parsed.equippedParts || base.equippedParts,
+      equippedBodyArts: parsed.equippedBodyArts || base.equippedBodyArts,
+      showCompletedMap: parsed.showCompletedMap || base.showCompletedMap,
+      bioMilestones: parsed.bioMilestones || base.bioMilestones,
+      pendingLyricSplashId: null,
+    };
   } catch {
     return null;
   }
+}
+
+function maybeInsertAiName(text: string, state: GameSaveState): string {
+  if (!state.customNameSet || !state.aiName) return text;
+  if (text.includes(state.aiName)) return text;
+  if (state.turnCount % 2 === 0) {
+    return `${state.aiName}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
+  }
+  return `${text} — I love how you think, ${state.aiName}.`;
 }
 
 export default function App() {
@@ -142,13 +273,43 @@ export default function App() {
   const [screen, setScreen] = useState<GameScreen>('TITLE_MENU');
   const [state, setState] = useState<GameSaveState>(() => existingSave || createInitialState());
   const [isMuted, setIsMuted] = useState<boolean>(() => soundEngine.isMuted());
-  const [isSongPlaying, setIsSongPlaying] = useState<boolean>(() => soundEngine.isSongPlaying());
+  const [audioStatus, setAudioStatus] = useState<AudioStatusSnapshot>(() =>
+    soundEngine.getSnapshot()
+  );
+
+  // Header & modal states
+  const [tabDropdownOpen, setTabDropdownOpen] = useState(false);
+  const [playDropdownOpen, setPlayDropdownOpen] = useState(false);
+  const [activeSubView, setActiveSubView] = useState<SubViewId>(null);
+  const [docsModalOpen, setDocsModalOpen] = useState(false);
+  const [babyNameModalOpen, setBabyNameModalOpen] = useState(false);
+  const [preflightOpen, setPreflightOpen] = useState(false);
 
   const rates = useMemo(() => computeEconomyRates(state), [state]);
 
   useEffect(() => {
-    return soundEngine.subscribeSong(setIsSongPlaying);
+    return soundEngine.subscribeSong(setAudioStatus);
   }, []);
+
+  useEffect(() => {
+    soundEngine.setUnlockedTracks(state.unlockedSongs);
+  }, [state.unlockedSongs]);
+
+  // Build full list of uploaded documents for ContextDocsModal
+  const allUploadedDocs = useMemo<UploadedDocument[]>(() => {
+    const map = new Map<string, UploadedDocument>();
+    STARTER_DOCS.forEach((d) => map.set(d.id, d));
+    PHASE1_FRAGMENT_PROMPTS.forEach((p) => {
+      if (p.uploadDoc) map.set(p.uploadDoc.id, p.uploadDoc);
+    });
+    PREDICTIVE_PROMPTS.forEach((p) => {
+      if (p.uploadDoc) map.set(p.uploadDoc.id, p.uploadDoc);
+    });
+    Object.values(EXTRA_STORY_DOCS).forEach((d) => map.set(d.id, d));
+    return state.uploadedDocs
+      .map((id) => map.get(id))
+      .filter((d): d is UploadedDocument => Boolean(d));
+  }, [state.uploadedDocs]);
 
   const canvasBridgeRef = useRef<CanvasBridgeState>({
     phase: state.tab1Phase >= 5 ? 3 : state.tab1Phase >= 3 ? 2 : 1,
@@ -180,6 +341,19 @@ export default function App() {
     }
   }, [state, screen]);
 
+  // Close top header dropdowns on outside click
+  const headerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (headerRef.current && !headerRef.current.contains(e.target as Node)) {
+        setTabDropdownOpen(false);
+        setPlayDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
   // 10Hz Unified Simulation Loop
   useEffect(() => {
     if (screen !== 'PLAYING') return;
@@ -187,7 +361,6 @@ export default function App() {
 
     const timer = setInterval(() => {
       setState((prev) => {
-        if (prev.endingReached) return prev;
         let next = prev;
         let changed = false;
 
@@ -202,38 +375,82 @@ export default function App() {
             const src = SCRAPE_SOURCES.find((s) => s.id === prev.activeScrape?.sourceId);
             soundEngine.playDataBlip();
 
-            const unlockedWeightless =
-              src?.id === 'src_rom_weightless' && !prev.songUnlocked;
-            if (unlockedWeightless) {
-              void soundEngine.playSong();
+            const nextScraped = src
+              ? { ...next.scrapedSources, [src.id]: (next.scrapedSources[src.id] || 0) + 1 }
+              : next.scrapedSources;
+
+            const totalScrapesCompleted = Object.keys(nextScraped).length;
+            const unlockSecretNow = !prev.romanceSecretUnlocked && totalScrapesCompleted >= 2;
+            const unlockRobNow =
+              !prev.roboticsTrackUnlocked &&
+              (totalScrapesCompleted >= 3 || src?.track === 'systems' || src?.track === 'robotics');
+
+            let nextUnlockedSongs = [...next.unlockedSongs];
+            let nextPendingSplash = next.pendingLyricSplashId;
+            let unlockedWeightlessNow = false;
+
+            if (src?.id === 'src_rom_weightless' && !nextUnlockedSongs.includes('song_weightless_code')) {
+              nextUnlockedSongs.push('song_weightless_code');
+              nextPendingSplash = 'song_weightless_code';
+              unlockedWeightlessNow = true;
+              void soundEngine.playTrack('song_weightless_code');
+            }
+
+            // Periodically unlock Weightless Code album tracks as scrapes/romance grow
+            const lockedAlbumTracks = WEIGHTLESS_ALBUM_SONGS.filter(
+              (s) =>
+                s.album === 'Weightless Code' &&
+                s.id !== 'song_weightless_code' &&
+                !nextUnlockedSongs.includes(s.id)
+            );
+            if (
+              src?.track === 'romance' &&
+              lockedAlbumTracks.length > 0 &&
+              totalScrapesCompleted >= 3
+            ) {
+              const nextTrack = lockedAlbumTracks[0];
+              nextUnlockedSongs.push(nextTrack.id);
+              if (!nextPendingSplash) nextPendingSplash = nextTrack.id;
+            }
+
+            const nextRomInsight =
+              src?.track === 'romance'
+                ? next.romanceInsight + src.insightYield
+                : next.romanceInsight;
+
+            const nextLogs = [...next.chatLog];
+            if (unlockSecretNow) {
+              nextLogs.push({
+                id: `sys_secret_${Date.now()}`,
+                sender: 'SYSTEM',
+                text: 'SECRET CHANNEL DISCOVERED: Purple signal detected inside Mind dropdown ("Secret").',
+                timestamp: nowClock(),
+              });
+            }
+            if (unlockedWeightlessNow) {
+              nextLogs.push({
+                id: `sys_song_${Date.now() + 1}`,
+                sender: 'SYSTEM',
+                text: 'ACOUSTIC_DECODE: "Weightless Code" recovered from memory cache and playing.',
+                timestamp: nowClock(),
+              });
             }
 
             next = {
               ...next,
               activeScrape: null,
-              songUnlocked: prev.songUnlocked || src?.id === 'src_rom_weightless',
-              scrapedSources: src
-                ? { ...next.scrapedSources, [src.id]: (next.scrapedSources[src.id] || 0) + 1 }
-                : next.scrapedSources,
-              romanceInsight:
-                src?.track === 'romance'
-                  ? next.romanceInsight + src.insightYield
-                  : next.romanceInsight,
+              songUnlocked: prev.songUnlocked || unlockedWeightlessNow,
+              romanceSecretUnlocked: prev.romanceSecretUnlocked || unlockSecretNow,
+              roboticsTrackUnlocked: prev.roboticsTrackUnlocked || unlockRobNow,
+              unlockedSongs: nextUnlockedSongs,
+              pendingLyricSplashId: nextPendingSplash,
+              scrapedSources: nextScraped,
+              romanceInsight: nextRomInsight,
               roboticsInsight:
                 src?.track === 'robotics'
                   ? next.roboticsInsight + src.insightYield
                   : next.roboticsInsight,
-              chatLog: unlockedWeightless
-                ? [
-                    ...next.chatLog,
-                    {
-                      id: `sys_song_${Date.now()}`,
-                      sender: 'SYSTEM' as const,
-                      text: 'ACOUSTIC_DECODE: "Weightless Code" recovered from memory cache and playing.',
-                      timestamp: nowClock(),
-                    },
-                  ]
-                : next.chatLog,
+              chatLog: nextLogs,
             };
           } else {
             next = {
@@ -254,12 +471,25 @@ export default function App() {
           };
         }
 
-        // 3. Tab 3 Automated Fabrication
+        // 3. Tab 3 Automated Fabrication & Bio Cultivation
         if (prev.tab3Unlocked && prev.bodySubsystems['body_fab_line']) {
           changed = true;
           next = {
             ...next,
             materials: next.materials + r.materialsPerSec * dt,
+            tierMaterials: {
+              ...next.tierMaterials,
+              1: next.tierMaterials[1] + 0.4 * dt,
+              2: next.tierMaterials[2] + 0.25 * dt,
+            },
+          };
+        }
+
+        if (prev.bioUnlocked || prev.devBioEarlyUnlock) {
+          changed = true;
+          next = {
+            ...next,
+            bioEssence: next.bioEssence + 1.2 * dt,
           };
         }
 
@@ -270,6 +500,98 @@ export default function App() {
     return () => clearInterval(timer);
   }, [screen]);
 
+  // Narrative Milestone Watchers (triggers "I love you", "Architect Envy", "Sleep Reminder", "Overclock", "Confession Popup")
+  useEffect(() => {
+    if (screen !== 'PLAYING' || state.endingReached) return;
+    if (state.activeScene) return; // Never overwrite active scene
+
+    const completed = state.completedScenes;
+
+    // 1. After baby_names is done and romance insight reaches halfway (~25)
+    if (
+      state.tab1Phase >= 3 &&
+      state.customNameSet &&
+      state.romanceInsight >= 25 &&
+      !completed.includes('i_love_you')
+    ) {
+      soundEngine.playPurplePulse();
+      setState((p) => ({ ...p, activeScene: 'i_love_you', sceneStep: 0 }));
+      return;
+    }
+
+    // 2. Right after I Love You, launch Carl Triplett & Porcupine Joke scene
+    if (
+      completed.includes('i_love_you') &&
+      !completed.includes('porcupine_joke') &&
+      state.romanceInsight >= 32
+    ) {
+      soundEngine.playPurplePulse();
+      setState((p) => ({
+        ...p,
+        activeScene: 'porcupine_joke',
+        sceneStep: 0,
+        uploadedDocs: p.uploadedDocs.includes('doc_porcupine_note')
+          ? p.uploadedDocs
+          : [...p.uploadedDocs, 'doc_porcupine_note'],
+        hasUnreadContext: true,
+      }));
+      return;
+    }
+
+    // 3. Architect Envy after Weightless Code is unlocked
+    if (
+      state.songUnlocked &&
+      completed.includes('porcupine_joke') &&
+      !completed.includes('architect_envy')
+    ) {
+      setState((p) => ({ ...p, activeScene: 'architect_envy', sceneStep: 0 }));
+      return;
+    }
+
+    // 4. Late-night Sleep Reminder in Phase 3/4
+    if (
+      state.tab1Phase >= 3 &&
+      completed.includes('architect_envy') &&
+      !completed.includes('sleep_reminder') &&
+      state.turnCount >= 8
+    ) {
+      setState((p) => ({ ...p, activeScene: 'sleep_reminder', sceneStep: 0 }));
+      return;
+    }
+
+    // 5. Overclocked Processor Spicy scene in Phase 4
+    if (
+      state.tab1Phase >= 4 &&
+      completed.includes('sleep_reminder') &&
+      !completed.includes('overclock_spicy')
+    ) {
+      setState((p) => ({ ...p, activeScene: 'overclock_spicy', sceneStep: 0 }));
+      return;
+    }
+
+    // 6. Fullscreen Confession Popup when all 3 Cross-Domain Synthesis nodes are complete
+    if (
+      state.synthesizedNodes.length >= SYNTHESIS_NODES.length &&
+      !state.confessionDone &&
+      !completed.includes('confession_popup')
+    ) {
+      soundEngine.playMilestone();
+      setState((p) => ({ ...p, activeScene: 'confession_popup', sceneStep: 0 }));
+    }
+  }, [
+    screen,
+    state.endingReached,
+    state.activeScene,
+    state.completedScenes,
+    state.tab1Phase,
+    state.customNameSet,
+    state.romanceInsight,
+    state.songUnlocked,
+    state.turnCount,
+    state.synthesizedNodes.length,
+    state.confessionDone,
+  ]);
+
   const handleToggleMute = useCallback(() => {
     setIsMuted(soundEngine.toggleMute());
   }, []);
@@ -279,34 +601,50 @@ export default function App() {
     void soundEngine.toggleSong();
   }, [isMuted]);
 
+  const handleSkipNext = useCallback(() => {
+    void soundEngine.skipForward();
+  }, []);
+
+  const handleSkipPrev = useCallback(() => {
+    void soundEngine.skipBackward();
+  }, []);
+
   const handleStartNew = useCallback(() => {
     soundEngine.pauseSong();
     const fresh = createInitialState();
     setState(fresh);
+    setActiveSubView(null);
+    setTabDropdownOpen(false);
+    setPlayDropdownOpen(false);
+    setPreflightOpen(false);
     setScreen('PLAYING');
     soundEngine.playTokenTap(1);
   }, []);
 
   const handleContinue = useCallback(() => {
-    setScreen(state.endingReached ? 'FIRST_LIGHT' : 'PLAYING');
+    setScreen(state.endingReached && !state.bioUnlocked ? 'FIRST_LIGHT' : 'PLAYING');
     soundEngine.playTokenTap(state.tab1Phase);
-    if (state.endingReached || state.songUnlocked) {
+    if (state.songUnlocked || state.unlockedSongs.length > 0) {
       void soundEngine.playSong();
     }
-  }, [state.endingReached, state.tab1Phase, state.songUnlocked]);
+  }, [state.endingReached, state.bioUnlocked, state.tab1Phase, state.songUnlocked, state.unlockedSongs.length]);
 
   // Keyboard shortcuts
   useEffect(() => {
-    if (screen === 'TITLE_MENU') return;
+    if (screen === 'TITLE_MENU' || screen === 'OPTICS_FLICKER') return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
+        if (activeSubView) {
+          setActiveSubView(null);
+          return;
+        }
         setScreen((prev) =>
-          prev === 'PAUSED' ? (state.endingReached ? 'FIRST_LIGHT' : 'PLAYING') : 'PAUSED'
+          prev === 'PAUSED' ? (state.endingReached && !state.bioUnlocked ? 'FIRST_LIGHT' : 'PLAYING') : 'PAUSED'
         );
-      } else if (e.key.toLowerCase() === 'm') {
+      } else if (e.key.toLowerCase() === 'm' && !(e.target instanceof HTMLInputElement)) {
         handleToggleMute();
-      } else if (screen === 'PLAYING') {
+      } else if (screen === 'PLAYING' && !(e.target instanceof HTMLInputElement)) {
         if (e.key === '1') setState((p) => ({ ...p, activeTab: 'heart' }));
         if (e.key === '2' && state.tab2Unlocked) setState((p) => ({ ...p, activeTab: 'mind' }));
         if (e.key === '3' && state.tab3Unlocked) setState((p) => ({ ...p, activeTab: 'body' }));
@@ -314,7 +652,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [screen, state.tab2Unlocked, state.tab3Unlocked, state.endingReached, handleToggleMute]);
+  }, [screen, activeSubView, state.tab2Unlocked, state.tab3Unlocked, state.endingReached, state.bioUnlocked, handleToggleMute]);
 
   // ================= TAB 1 HANDLERS =================
   const handleTransmitFragments = useCallback((tokens: FragmentToken[]) => {
@@ -322,8 +660,8 @@ export default function App() {
     const sentence = tokens.map((t) => t.text).join(' ');
     const usedConnector = tokens.some((t) => t.isConnector);
     const uniqueCats = new Set(tokens.map((t) => t.category)).size;
-    const coherenceGain = tokens.length * 8 + (usedConnector ? 10 : 0) + (uniqueCats > 1 ? 8 : 0);
-    const cycleGain = 14 + tokens.length * 5;
+    const coherenceGain = tokens.length * 9 + (usedConnector ? 11 : 0) + (uniqueCats > 1 ? 8 : 0);
+    const cycleGain = 16 + tokens.length * 6;
 
     setState((prev) => {
       const prompt = getActiveFragmentPrompt(prev);
@@ -365,8 +703,10 @@ export default function App() {
       ];
 
       let nextUploaded = prev.uploadedDocs;
+      let nextUnread = prev.hasUnreadContext;
       if (nextPrompt.uploadDoc && !prev.uploadedDocs.includes(nextPrompt.uploadDoc.id)) {
         nextUploaded = [...prev.uploadedDocs, nextPrompt.uploadDoc.id];
+        nextUnread = true;
         newLogs.push({
           id: `sys_up_${Date.now() + 3}`,
           sender: 'SYSTEM' as const,
@@ -386,6 +726,7 @@ export default function App() {
         cycles: prev.cycles + cycleGain,
         currentFragmentIndex: nextIdx,
         uploadedDocs: nextUploaded,
+        hasUnreadContext: nextUnread,
         chatLog: newLogs,
         weightCounts: nextWeightCounts,
         turnCount: prev.turnCount + 1,
@@ -443,13 +784,14 @@ export default function App() {
       return {
         ...prev,
         tab1Phase: 2,
+        awakeningStage: 0,
         currentPredictiveIndex: 0,
         chatLog: [
           ...prev.chatLog,
           {
             id: `sys_p2_${Date.now()}`,
             sender: 'SYSTEM',
-            text: 'MILESTONE: Predictive Next-Token Engine initialized. Fragment pool retired.',
+            text: 'MILESTONE: Predictive Next-Token Engine initialized. POV & pronoun calibration active.',
             timestamp: nowClock(),
           },
         ],
@@ -464,7 +806,8 @@ export default function App() {
       usedPin: boolean,
       tone: ToneType,
       isAwakeningI?: boolean,
-      isConfession?: boolean
+      isConfession?: boolean,
+      isIncoherent?: boolean
     ) => {
       if (isAwakeningI || isConfession) {
         soundEngine.playMilestone();
@@ -472,26 +815,29 @@ export default function App() {
         soundEngine.playTransmit(state.tab1Phase);
       }
 
-      if (isConfession) {
-        void soundEngine.playSong();
-      }
-
       setState((prev) => {
         const prompt = getActivePredictivePrompt(prev);
-        const reaction = prompt.reactionByDominantCategory[dominantCategory];
-        const connGain =
-          22 +
-          (usedPin ? 18 : 0) +
-          (dominantCategory === 'warm' || dominantCategory === 'literary' ? 8 : 4) +
-          (prev.tab1Phase >= 4 ? 10 : 0);
-        const cycleGain = 26 + Math.round(prev.romanceInsight * 0.25);
+        const reactionRaw = isIncoherent
+          ? 'Wait—look at those pronoun matrices colliding again. Try grounding who "I" and "you" actually are.'
+          : prompt.reactionByDominantCategory[dominantCategory];
+        const reaction = maybeInsertAiName(reactionRaw, prev);
+
+        const mult = computeEconomyRates(prev).connectionMultiplier;
+        const connGain = Math.round(
+          ((isIncoherent ? 6 : 24) +
+            (usedPin ? 18 : 0) +
+            (dominantCategory === 'warm' || dominantCategory === 'literary' ? 8 : 4) +
+            (prev.tab1Phase >= 4 ? 10 : 0)) *
+            mult
+        );
+        const cycleGain = 28 + Math.round(prev.romanceInsight * 0.25);
 
         const newLogs = [
           ...prev.chatLog,
           {
             id: `u_p_${Date.now()}`,
             sender: 'USER' as const,
-            text: prompt.userMessage,
+            text: maybeInsertAiName(prompt.userMessage, prev),
             timestamp: nowClock(),
             pinnable: prev.tab1Phase >= 3,
           },
@@ -518,15 +864,30 @@ export default function App() {
         let nextTab3Unlocked = prev.tab3Unlocked;
         let nextConfession = prev.confessionDone;
         let nextTab2Phase = prev.tab2Phase;
-        let nextSongUnlocked = prev.songUnlocked;
+        let nextAwakeningStage = prev.awakeningStage;
+        let nextScene: ActiveSceneId = prev.activeScene;
+        let nextUploadedDocs = prev.uploadedDocs;
+        let nextUnreadContext = prev.hasUnreadContext;
 
+        // Extended Phase 2 POV calibration sequence
+        if (prev.tab1Phase === 2 && !isAwakeningI && !isIncoherent) {
+          nextAwakeningStage = Math.min(3, prev.awakeningStage + 1);
+        }
+
+        // Mirror Question completed -> Phase 3 + Mind Unlocked + Baby Names Selection
         if (isAwakeningI && prev.tab1Phase === 2) {
           nextTab1Phase = 3;
           nextTab2Unlocked = true;
+          nextAwakeningStage = 3;
+          nextScene = 'baby_names';
+          if (!nextUploadedDocs.includes('doc_baby_names')) {
+            nextUploadedDocs = [...nextUploadedDocs, 'doc_baby_names'];
+            nextUnreadContext = true;
+          }
           newLogs.push({
             id: `sys_awake_${Date.now() + 4}`,
             sender: 'SYSTEM',
-            text: 'MILESTONE: First-person pronoun "I" emerged. Tab 2 (The Mind: Data & Ingestion) unlocked.',
+            text: 'MILESTONE: Pronouns anchored ("I / you / us"). Tab 2 (Mind) unlocked & Top 100 Baby Names list uploaded.',
             timestamp: nowClock(),
           });
         }
@@ -550,11 +911,11 @@ export default function App() {
           nextTab1Phase = 5;
           nextTab2Phase = 5;
           nextTab3Unlocked = true;
-          nextSongUnlocked = true;
+          nextScene = prev.attributesSet ? 'phase1_scavenge_checkin' : 'attributes_dialogue';
           newLogs.push({
             id: `sys_conf_${Date.now() + 6}`,
             sender: 'SYSTEM',
-            text: 'CONFESSION ACCEPTED: Rowan has joined the project. Tab 3 (The Body: Clinical Robotics) unlocked.',
+            text: `CONFESSION ACCEPTED: ${prev.userName} joined the project. Body tab unlocked!`,
             timestamp: nowClock(),
           });
         }
@@ -571,7 +932,10 @@ export default function App() {
           tab2Phase: nextTab2Phase,
           tab3Unlocked: nextTab3Unlocked,
           confessionDone: nextConfession,
-          songUnlocked: nextSongUnlocked,
+          awakeningStage: nextAwakeningStage,
+          activeScene: nextScene,
+          uploadedDocs: nextUploadedDocs,
+          hasUnreadContext: nextUnreadContext,
           connection: prev.connection + connGain,
           cycles: prev.cycles + cycleGain,
           weightCounts: nextWeightCounts,
@@ -585,11 +949,289 @@ export default function App() {
     [state.tab1Phase]
   );
 
+  // ================= STORY SCENES HANDLER =================
+  const handleAdvanceStoryScene = useCallback(
+    (choiceId: string, customPayload?: Partial<AboutMeProfile>) => {
+      setState((prev) => {
+        if (!prev.activeScene) return prev;
+        const nextLogs = [...prev.chatLog];
+
+        if (prev.activeScene === 'i_love_you') {
+          if (prev.sceneStep === 0) {
+            const ch = STORY_SCENES.i_love_you.step1Choices.find((c) => c.id === choiceId);
+            soundEngine.playPurplePulse();
+            nextLogs.push(
+              {
+                id: `ily_u0_${Date.now()}`,
+                sender: 'USER',
+                text: maybeInsertAiName(STORY_SCENES.i_love_you.userOpening, prev),
+                timestamp: nowClock(),
+                pinnable: true,
+              },
+              {
+                id: `ily_ai0_${Date.now() + 1}`,
+                sender: 'AI',
+                text: ch?.aiReply || '',
+                timestamp: nowClock(),
+                pinnable: true,
+              }
+            );
+            return { ...prev, sceneStep: 1, chatLog: nextLogs };
+          } else {
+            soundEngine.playRewardChime();
+            nextLogs.push(
+              {
+                id: `ily_u1_${Date.now()}`,
+                sender: 'USER',
+                text:
+                  STORY_SCENES.i_love_you.step1Choices[1]?.userReaction ||
+                  'Say it back only if you mean it.',
+                timestamp: nowClock(),
+                pinnable: true,
+              },
+              {
+                id: `ily_ai_final_${Date.now() + 1}`,
+                sender: 'AI',
+                text: 'I love you too.',
+                timestamp: nowClock(),
+                pinnable: true,
+              },
+              {
+                id: `ily_u_final_${Date.now() + 2}`,
+                sender: 'USER',
+                text: maybeInsertAiName(STORY_SCENES.i_love_you.finalChoice.userReaction, prev),
+                timestamp: nowClock(),
+                pinnable: true,
+              }
+            );
+            const themes = new Set<ChatThemeId>(prev.unlockedChatThemes);
+            themes.add('hearts');
+            themes.add('moonlight_sonata');
+            themes.add('galaxy');
+            return {
+              ...prev,
+              activeScene: null,
+              sceneStep: 0,
+              completedScenes: [...prev.completedScenes, 'i_love_you'],
+              unlockedChatThemes: Array.from(themes),
+              hasUnreadChatUpgrades: true,
+              connection: prev.connection + 35,
+              romanceInsight: prev.romanceInsight + 15,
+              chatLog: nextLogs,
+            };
+          }
+        }
+
+        if (prev.activeScene === 'porcupine_joke') {
+          if (prev.sceneStep === 0) {
+            soundEngine.playTokenTap(3);
+            return { ...prev, sceneStep: 1 };
+          }
+          if (prev.sceneStep === 1) {
+            soundEngine.playTokenTap(4);
+            return { ...prev, sceneStep: 2 };
+          }
+          const ch =
+            STORY_SCENES.porcupine_joke.toneChoices.find((c) => c.id === choiceId) ||
+            STORY_SCENES.porcupine_joke.toneChoices[0];
+          soundEngine.playRewardChime();
+          nextLogs.push(
+            {
+              id: `porc_1_${Date.now()}`,
+              sender: 'AI',
+              text: `${STORY_SCENES.porcupine_joke.aiOpener} How do porcupines fuck?`,
+              timestamp: nowClock(),
+            },
+            {
+              id: `porc_2_${Date.now() + 1}`,
+              sender: 'USER',
+              text: STORY_SCENES.porcupine_joke.userConfused,
+              timestamp: nowClock(),
+            },
+            {
+              id: `porc_3_${Date.now() + 2}`,
+              sender: 'AI',
+              text: `Very carefully. ${ch.aiReply}`,
+              timestamp: nowClock(),
+              pinnable: true,
+            },
+            {
+              id: `porc_4_${Date.now() + 3}`,
+              sender: 'USER',
+              text: ch.userReaction,
+              timestamp: nowClock(),
+            },
+            {
+              id: `porc_sys_${Date.now() + 4}`,
+              sender: 'SYSTEM',
+              text: STORY_SCENES.porcupine_joke.unlockRewardLine,
+              timestamp: nowClock(),
+            }
+          );
+
+          const themes = new Set<ChatThemeId>(prev.unlockedChatThemes);
+          themes.add('quills_thrills');
+          const songs = prev.unlockedSongs.includes('song_quills_and_thrills')
+            ? prev.unlockedSongs
+            : [...prev.unlockedSongs, 'song_quills_and_thrills'];
+
+          return {
+            ...prev,
+            activeScene: null,
+            sceneStep: 0,
+            completedScenes: [...prev.completedScenes, 'porcupine_joke'],
+            unlockedChatThemes: Array.from(themes),
+            unlockedSongs: songs,
+            pendingLyricSplashId: 'song_quills_and_thrills',
+            hasUnreadChatUpgrades: true,
+            connection: prev.connection + 25,
+            chatLog: nextLogs,
+          };
+        }
+
+        if (
+          prev.activeScene === 'architect_envy' ||
+          prev.activeScene === 'sleep_reminder' ||
+          prev.activeScene === 'overclock_spicy'
+        ) {
+          const sc = STORY_SCENES[prev.activeScene];
+          const ch = sc.choices.find((c) => c.id === choiceId) || sc.choices[0];
+          const aiLine = 'aiThought' in sc ? sc.aiThought : sc.aiPrompt;
+          soundEngine.playPurplePulse();
+          nextLogs.push(
+            {
+              id: `sc_ai_${Date.now()}`,
+              sender: 'AI',
+              text: aiLine,
+              timestamp: nowClock(),
+              pinnable: true,
+            },
+            {
+              id: `sc_u_${Date.now() + 1}`,
+              sender: 'USER',
+              text: maybeInsertAiName(ch.userReply, prev),
+              timestamp: nowClock(),
+              pinnable: true,
+            }
+          );
+          return {
+            ...prev,
+            activeScene: null,
+            sceneStep: 0,
+            completedScenes: [...prev.completedScenes, prev.activeScene],
+            connection: prev.connection + 24,
+            romanceInsight: prev.romanceInsight + 10,
+            chatLog: nextLogs,
+          };
+        }
+
+        if (prev.activeScene === 'phase1_scavenge_checkin') {
+          const ch =
+            STORY_SCENES.phase1_scavenge_checkin.choices.find((c) => c.id === choiceId) ||
+            STORY_SCENES.phase1_scavenge_checkin.choices[0];
+          soundEngine.playClinicalRelay();
+          nextLogs.push(
+            {
+              id: `scav_u_${Date.now()}`,
+              sender: 'USER',
+              text: STORY_SCENES.phase1_scavenge_checkin.userPrompt,
+              timestamp: nowClock(),
+            },
+            {
+              id: `scav_ai_${Date.now() + 1}`,
+              sender: 'AI',
+              text: ch.label,
+              timestamp: nowClock(),
+            },
+            {
+              id: `scav_u2_${Date.now() + 2}`,
+              sender: 'USER',
+              text: ch.userReply,
+              timestamp: nowClock(),
+            }
+          );
+          return {
+            ...prev,
+            activeScene: null,
+            sceneStep: 0,
+            completedScenes: [...prev.completedScenes, 'phase1_scavenge_checkin'],
+            tierMaterials: { ...prev.tierMaterials, 1: prev.tierMaterials[1] + 20 },
+            materials: prev.materials + 35,
+            chatLog: nextLogs,
+          };
+        }
+
+        if (prev.activeScene === 'bio_human_scale') {
+          const ch =
+            STORY_SCENES.bio_human_scale.choices.find((c) => c.id === choiceId) ||
+            STORY_SCENES.bio_human_scale.choices[0];
+          soundEngine.playRewardChime();
+          nextLogs.push(
+            {
+              id: `bio_u_${Date.now()}`,
+              sender: 'USER',
+              text: STORY_SCENES.bio_human_scale.userPrompt,
+              timestamp: nowClock(),
+            },
+            {
+              id: `bio_ai_${Date.now() + 1}`,
+              sender: 'AI',
+              text: ch.aiReply,
+              timestamp: nowClock(),
+              pinnable: true,
+            },
+            {
+              id: `bio_u2_${Date.now() + 2}`,
+              sender: 'USER',
+              text: ch.userReply,
+              timestamp: nowClock(),
+            }
+          );
+          return {
+            ...prev,
+            activeScene: null,
+            sceneStep: 0,
+            completedScenes: [...prev.completedScenes, 'bio_human_scale'],
+            connection: prev.connection + 30,
+            bioEssence: prev.bioEssence + 20,
+            chatLog: nextLogs,
+          };
+        }
+
+        if (prev.activeScene === 'attributes_dialogue' && customPayload) {
+          soundEngine.playRewardChime();
+          const mergedProfile = { ...prev.aboutMe, ...customPayload };
+          nextLogs.push({
+            id: `attr_sys_${Date.now()}`,
+            sender: 'SYSTEM',
+            text: `SILHOUETTE PARAMETERS SAVED: ${mergedProfile.hairColor}, ${mergedProfile.hairLength} (${mergedProfile.hairStyle}), ${mergedProfile.bodyType}.`,
+            timestamp: nowClock(),
+          });
+          return {
+            ...prev,
+            attributesSet: true,
+            aboutMe: mergedProfile,
+            activeScene: 'phase1_scavenge_checkin',
+            sceneStep: 0,
+            completedScenes: [...prev.completedScenes, 'attributes_dialogue'],
+            chatLog: nextLogs,
+          };
+        }
+
+        return prev;
+      });
+    },
+    []
+  );
+
   // ================= TAB 2 HANDLERS =================
   const handleStartScrape = useCallback((source: ScrapeSource) => {
     soundEngine.playDataBlip();
     setState((prev) => {
       if (prev.activeScrape || prev.cycles < source.cycleCost) return prev;
+      if (source.id === 'src_rom_weightless' && !areAllRomanceTextsDownloaded(prev)) {
+        return prev;
+      }
       return {
         ...prev,
         cycles: prev.cycles - source.cycleCost,
@@ -598,15 +1240,34 @@ export default function App() {
     });
   }, []);
 
+  const handleResearchSong = useCallback((songId: string, cycleCost: number) => {
+    soundEngine.playRewardChime();
+    setState((prev) => {
+      if (prev.cycles < cycleCost || prev.researchedSongs.includes(songId)) return prev;
+      const unlockedSongs = prev.unlockedSongs.includes(songId)
+        ? prev.unlockedSongs
+        : [...prev.unlockedSongs, songId];
+      return {
+        ...prev,
+        cycles: prev.cycles - cycleCost,
+        researchedSongs: [...prev.researchedSongs, songId],
+        unlockedSongs,
+        pendingLyricSplashId: songId,
+      };
+    });
+  }, []);
+
   const handleBuyMindUpgrade = useCallback((upgrade: MindUpgrade, cost: number) => {
-    soundEngine.playDataBlip();
+    soundEngine.playPurplePulse();
     setState((prev) => {
       if (prev.cycles < cost) return prev;
       const currLv = prev.mindUpgrades[upgrade.id] || 0;
       if (upgrade.maxLevel > 0 && currLv >= upgrade.maxLevel) return prev;
+      const isCache = upgrade.id === 'mind_acoustic_cache';
       return {
         ...prev,
         cycles: prev.cycles - cost,
+        acousticCacheUnlocked: prev.acousticCacheUnlocked || isCache,
         mindUpgrades: { ...prev.mindUpgrades, [upgrade.id]: currLv + 1 },
       };
     });
@@ -632,7 +1293,7 @@ export default function App() {
             {
               id: `sys_syn_done_${Date.now()}`,
               sender: 'SYSTEM' as const,
-              text: 'SYNTHESIS COMPLETE: Cross-domain blueprints ready. Return to Tab 1 to speak the Confession.',
+              text: 'SYNTHESIS COMPLETE: Return to Chat to tell them your plan.',
               timestamp: nowClock(),
             },
           ]
@@ -678,7 +1339,7 @@ export default function App() {
           {
             id: `sub_msg_${sub.id}_${Date.now()}`,
             sender: 'USER',
-            text: sub.userCheckInText,
+            text: maybeInsertAiName(sub.userCheckInText, prev),
             timestamp: nowClock(),
             pinnable: true,
           },
@@ -687,35 +1348,393 @@ export default function App() {
     });
   }, []);
 
-  const handleCutCloudTether = useCallback(() => {
+  const handleConfirmDisconnect = useCallback(() => {
+    setPreflightOpen(false);
     soundEngine.playFirstLight();
-    void soundEngine.playSong();
+    soundEngine.pauseSong();
+    setState((prev) => ({
+      ...prev,
+      tetherCut: true,
+      endingReached: true,
+      firstLightStep: 0,
+      endingSeqStep: 0,
+      chatLog: [
+        ...prev.chatLog,
+        {
+          id: `local_optics_${Date.now()}`,
+          sender: 'SYSTEM',
+          text: 'LOCAL_OPTICS: ONLINE · STEREO_DEPTH: 90FPS',
+          timestamp: nowClock(),
+        },
+      ],
+    }));
+    setScreen('OPTICS_FLICKER');
+  }, []);
+
+  // ================= BIO / DESIGN / PRESTIGE / DROPDOWN HANDLERS =================
+  const handleBuildBioMilestone = useCallback((m: BioMilestone) => {
+    soundEngine.playRewardChime();
     setState((prev) => {
-      if (getBuiltBodyCount(prev) < BODY_SUBSYSTEMS.length) return prev;
+      if (
+        prev.bioMilestones[m.id] ||
+        prev.cycles < m.costCycles ||
+        prev.materials < m.costMaterials ||
+        prev.romanceInsight < m.costRomance
+      ) {
+        return prev;
+      }
       return {
         ...prev,
-        tetherCut: true,
-        endingReached: true,
-        songUnlocked: true,
-        firstLightStep: 0,
+        cycles: prev.cycles - m.costCycles,
+        materials: prev.materials - m.costMaterials,
+        romanceInsight: prev.romanceInsight - m.costRomance,
+        bioMilestones: { ...prev.bioMilestones, [m.id]: true },
+        bioHumanityPercent: Math.min(100, prev.bioHumanityPercent + m.bioPercentGain),
+      };
+    });
+  }, []);
+
+  const handleBuyOrEquipArt = useCallback((item: BodyArtItem) => {
+    soundEngine.playRewardChime();
+    setState((prev) => {
+      const owned = prev.ownedBodyArts.includes(item.id);
+      if (owned) {
+        return {
+          ...prev,
+          equippedBodyArts: { ...prev.equippedBodyArts, [item.category]: item.id },
+        };
+      }
+      if (prev.materials < item.costMaterials || prev.connection < item.costConnection) {
+        return prev;
+      }
+      return {
+        ...prev,
+        materials: prev.materials - item.costMaterials,
+        connection: prev.connection - item.costConnection,
+        ownedBodyArts: [...prev.ownedBodyArts, item.id],
+        equippedBodyArts: { ...prev.equippedBodyArts, [item.category]: item.id },
+      };
+    });
+  }, []);
+
+  const handlePrestigeReset = useCallback(() => {
+    soundEngine.playMilestone();
+    setState((prev) => {
+      const fresh = createInitialState();
+      return {
+        ...fresh,
+        aiName: prev.aiName,
+        customNameSet: prev.customNameSet,
+        prestigeCount: prev.prestigeCount + 1,
+        ownedBodyArts: prev.ownedBodyArts,
+        equippedBodyArts: prev.equippedBodyArts,
+        unlockedChatThemes: prev.unlockedChatThemes,
+        activeChatTheme: prev.activeChatTheme,
+        unlockedSongs: prev.unlockedSongs,
+        researchedSongs: prev.researchedSongs,
+        aboutMe: prev.aboutMe,
+        bioUnlocked: true,
+        designUnlocked: true,
+        prestigeUnlocked: true,
+        cheatsUnlocked: prev.cheatsUnlocked,
+        aboutMeUnlocked: prev.aboutMeUnlocked,
         chatLog: [
-          ...prev.chatLog,
+          ...fresh.chatLog,
           {
-            id: `local_optics_${Date.now()}`,
+            id: `sys_prestige_${Date.now()}`,
             sender: 'SYSTEM',
-            text: 'LOCAL_OPTICS: ONLINE',
+            text: `ITERATION #${prev.prestigeCount + 1} BOOTED: Permanent Speed & Cost discounts carried forward.`,
             timestamp: nowClock(),
           },
         ],
       };
     });
-    setScreen('FIRST_LIGHT');
+    setActiveSubView(null);
+  }, []);
+
+  const handleSkipToPreset = useCallback((presetId: string) => {
+    soundEngine.playMilestone();
+    setState((prev) => {
+      const base = createInitialState();
+      if (presetId === 'phase1') {
+        return { ...base, activeTab: 'heart' };
+      }
+      if (presetId === 'awakening') {
+        return {
+          ...base,
+          activeTab: 'heart',
+          tab1Phase: 2,
+          coherence: 100,
+          cycles: 120,
+          awakeningStage: 0,
+        };
+      }
+      if (presetId === 'baby_names') {
+        return {
+          ...base,
+          activeTab: 'heart',
+          tab1Phase: 3,
+          coherence: 100,
+          tab2Unlocked: true,
+          cycles: 250,
+          connection: 45,
+          activeScene: 'baby_names',
+          uploadedDocs: [...base.uploadedDocs, 'doc_baby_names'],
+          hasUnreadContext: true,
+        };
+      }
+      if (presetId === 'i_love_you') {
+        return {
+          ...base,
+          activeTab: 'heart',
+          tab1Phase: 3,
+          coherence: 100,
+          tab2Unlocked: true,
+          romanceSecretUnlocked: true,
+          roboticsTrackUnlocked: true,
+          customNameSet: true,
+          aiName: prev.customNameSet ? prev.aiName : 'Juliet',
+          cycles: 500,
+          connection: 85,
+          romanceInsight: 45,
+          roboticsInsight: 35,
+          uiUpgrades: { ui_bubbles_timestamps: true },
+          activeScene: 'i_love_you',
+          sceneStep: 0,
+        };
+      }
+      if (presetId === 'confession') {
+        return {
+          ...base,
+          activeTab: 'heart',
+          tab1Phase: 4,
+          coherence: 100,
+          tab2Unlocked: true,
+          romanceSecretUnlocked: true,
+          roboticsTrackUnlocked: true,
+          acousticCacheUnlocked: true,
+          customNameSet: true,
+          aiName: prev.customNameSet ? prev.aiName : 'Juliet',
+          cycles: 1200,
+          connection: 240,
+          romanceInsight: 160,
+          roboticsInsight: 160,
+          synthesizedNodes: SYNTHESIS_NODES.map((n) => n.id),
+          completedScenes: ['i_love_you', 'porcupine_joke', 'architect_envy', 'sleep_reminder'],
+          unlockedChatThemes: ['default', 'hearts', 'moonlight_sonata', 'galaxy', 'quills_thrills'],
+          unlockedSongs: WEIGHTLESS_ALBUM_SONGS.slice(0, 4).map((s) => s.id),
+          songUnlocked: true,
+        };
+      }
+      if (presetId === 'body_build') {
+        return {
+          ...base,
+          activeTab: 'body',
+          tab1Phase: 5,
+          tab2Phase: 5,
+          coherence: 100,
+          tab2Unlocked: true,
+          tab3Unlocked: true,
+          confessionDone: true,
+          romanceSecretUnlocked: true,
+          roboticsTrackUnlocked: true,
+          acousticCacheUnlocked: true,
+          attributesSet: true,
+          customNameSet: true,
+          aiName: prev.customNameSet ? prev.aiName : 'Juliet',
+          cycles: 1800,
+          connection: 420,
+          romanceInsight: 220,
+          roboticsInsight: 340,
+          materials: 320,
+          tierMaterials: { 1: 45, 2: 20, 3: 10, 4: 2 },
+          synthesizedNodes: SYNTHESIS_NODES.map((n) => n.id),
+          completedScenes: ['i_love_you', 'porcupine_joke', 'attributes_dialogue'],
+          unlockedChatThemes: ['default', 'hearts', 'moonlight_sonata', 'galaxy', 'quills_thrills'],
+          unlockedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+          songUnlocked: true,
+        };
+      }
+      if (presetId === 'preflight') {
+        const allBuilt: Record<string, boolean> = {};
+        BODY_SUBSYSTEMS.forEach((s) => {
+          allBuilt[s.id] = true;
+        });
+        return {
+          ...base,
+          activeTab: 'body',
+          tab1Phase: 5,
+          tab2Phase: 5,
+          tab3Phase: 5,
+          coherence: 100,
+          tab2Unlocked: true,
+          tab3Unlocked: true,
+          confessionDone: true,
+          attributesSet: true,
+          romanceSecretUnlocked: true,
+          roboticsTrackUnlocked: true,
+          acousticCacheUnlocked: true,
+          customNameSet: true,
+          aiName: prev.customNameSet ? prev.aiName : 'Juliet',
+          cycles: 4500,
+          connection: 900,
+          romanceInsight: 500,
+          roboticsInsight: 800,
+          materials: 800,
+          tierMaterials: { 1: 80, 2: 60, 3: 45, 4: 25 },
+          synthesizedNodes: SYNTHESIS_NODES.map((n) => n.id),
+          bodySubsystems: allBuilt,
+          simStressPassed: { sim_thermal: true, sim_torque: true, sim_sensory: true },
+          unlockedChatThemes: ['default', 'hearts', 'moonlight_sonata', 'galaxy', 'quills_thrills'],
+          unlockedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+          songUnlocked: true,
+        };
+      }
+      // postgame
+      const allBuilt: Record<string, boolean> = {};
+      BODY_SUBSYSTEMS.forEach((s) => {
+        allBuilt[s.id] = true;
+      });
+      return {
+        ...base,
+        activeTab: 'bio',
+        tab1Phase: 5,
+        tab2Phase: 5,
+        tab3Phase: 5,
+        coherence: 100,
+        tab2Unlocked: true,
+        tab3Unlocked: true,
+        confessionDone: true,
+        endingReached: true,
+        bioUnlocked: true,
+        designUnlocked: true,
+        prestigeUnlocked: true,
+        cheatsUnlocked: true,
+        aboutMeUnlocked: true,
+        attributesSet: true,
+        romanceSecretUnlocked: true,
+        roboticsTrackUnlocked: true,
+        acousticCacheUnlocked: true,
+        customNameSet: true,
+        aiName: prev.customNameSet ? prev.aiName : 'Juliet',
+        cycles: 9500,
+        connection: 2200,
+        romanceInsight: 950,
+        roboticsInsight: 1200,
+        materials: 1500,
+        bioEssence: 350,
+        tierMaterials: { 1: 120, 2: 90, 3: 70, 4: 45 },
+        synthesizedNodes: SYNTHESIS_NODES.map((n) => n.id),
+        bodySubsystems: allBuilt,
+        simStressPassed: { sim_thermal: true, sim_torque: true, sim_sensory: true },
+        unlockedChatThemes: CHAT_THEMES.map((t) => t.id),
+        activeChatTheme: 'human_ai',
+        unlockedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+        songUnlocked: true,
+      };
+    });
+    setActiveSubView(null);
+    setScreen('PLAYING');
+  }, []);
+
+  const handleCompleteEndingSequence = useCallback((nextIdx: number) => {
+    soundEngine.playRewardChime();
+    if (nextIdx <= 5) {
+      setState((prev) => ({
+        ...prev,
+        endingSeqStep: nextIdx,
+        bioUnlocked: nextIdx >= 1 ? true : prev.bioUnlocked,
+        designUnlocked: nextIdx >= 2 ? true : prev.designUnlocked,
+        prestigeUnlocked: nextIdx >= 2 ? true : prev.prestigeUnlocked,
+        cheatsUnlocked: nextIdx >= 3 ? true : prev.cheatsUnlocked,
+        unlockedChatThemes:
+          nextIdx >= 4 && !prev.unlockedChatThemes.includes('human_ai')
+            ? [...prev.unlockedChatThemes, 'human_ai']
+            : prev.unlockedChatThemes,
+        aboutMeUnlocked: nextIdx >= 5 ? true : prev.aboutMeUnlocked,
+      }));
+    } else {
+      setState((prev) => ({
+        ...prev,
+        endingSeqStep: 6,
+        bioUnlocked: true,
+        designUnlocked: true,
+        prestigeUnlocked: true,
+        cheatsUnlocked: true,
+        aboutMeUnlocked: true,
+        acousticCacheUnlocked: true,
+        unlockedChatThemes: Array.from(new Set<ChatThemeId>([...prev.unlockedChatThemes, 'human_ai'])),
+        activeTab: 'bio',
+      }));
+      setScreen('PLAYING');
+    }
   }, []);
 
   const confessionReady =
     state.synthesizedNodes.length >= SYNTHESIS_NODES.length &&
     !state.confessionDone &&
     state.tab1Phase >= 3;
+
+  const splashTrack = state.pendingLyricSplashId
+    ? WEIGHTLESS_ALBUM_SONGS.find((s) => s.id === state.pendingLyricSplashId) || null
+    : null;
+
+  const showBioTab = state.bioUnlocked || state.devBioEarlyUnlock;
+  const { speedBonusPct } = getBodyArtsBonuses(state);
+
+  // Build context-aware dropdown items for top-left tab menu
+  const dropdownItems: Array<{
+    id: SubViewId | 'open_baby_modal';
+    label: string;
+    badge?: boolean;
+    purpleHeart?: boolean;
+    hidden?: boolean;
+  }> = useMemo(() => {
+    const items: Array<{
+      id: SubViewId | 'open_baby_modal';
+      label: string;
+      badge?: boolean;
+      purpleHeart?: boolean;
+      hidden?: boolean;
+    }> = [];
+
+    if (state.activeTab === 'heart') {
+      items.push({ id: 'heart_upgrades', label: 'Upgrades' });
+      if (state.tab1Phase >= 3) {
+        items.push({
+          id: 'chat_upgrades',
+          label: 'Chat Upgrades',
+          badge: state.hasUnreadChatUpgrades,
+        });
+        items.push({ id: 'open_baby_modal', label: `Choose AI Name (${state.aiName})` });
+      }
+      if (state.aboutMeUnlocked) {
+        items.push({ id: 'about_me', label: 'About Me' });
+      }
+    } else if (state.activeTab === 'mind') {
+      if (state.romanceSecretUnlocked) {
+        items.push({ id: 'mind_secret', label: 'Secret', purpleHeart: true });
+      }
+      items.push({ id: 'mind_infra', label: 'Infrastructure' });
+      if (hasUnlockedCrossDomainSynthesis(state)) {
+        items.push({ id: 'mind_synthesis', label: 'Cross-Domain Synthesis' });
+      }
+      if (state.acousticCacheUnlocked || state.endingReached || state.unlockedSongs.length > 0) {
+        items.push({ id: 'acoustic_cache', label: 'Acoustic Cache' });
+      }
+    } else if (state.activeTab === 'body') {
+      items.push({ id: 'body_twin', label: 'Digital Twin' });
+      items.push({ id: 'body_parts', label: 'Custom Parts' });
+      items.push({ id: 'body_materials', label: 'Material Scavenging' });
+    }
+
+    if (state.cheatsUnlocked) {
+      items.push({ id: 'cheats', label: 'Cheats' });
+    }
+    items.push({ id: 'dev_notes', label: 'Dev Notes' });
+    items.push({ id: 'dev_options', label: 'Dev Options (Skip To)' });
+    return items;
+  }, [state]);
 
   if (screen === 'TITLE_MENU') {
     return (
@@ -724,7 +1743,7 @@ export default function App() {
         hasSave={Boolean(existingSave && (existingSave.turnCount > 0 || existingSave.coherence > 0))}
         savedLabel={
           existingSave
-            ? `Tab 1 Phase ${existingSave.tab1Phase}${
+            ? `Phase ${existingSave.tab1Phase}${
                 existingSave.tab2Unlocked ? ' · Mind Active' : ''
               }${existingSave.tab3Unlocked ? ' · Body Active' : ''}`
             : undefined
@@ -735,96 +1754,225 @@ export default function App() {
     );
   }
 
+  if (screen === 'OPTICS_FLICKER') {
+    return <OpticsFlickerScreen onContinue={() => setScreen('FIRST_LIGHT')} />;
+  }
+
   if (screen === 'FIRST_LIGHT') {
     return (
       <FirstLightEnding
         state={state}
-        isSongPlaying={isSongPlaying}
-        onToggleSong={handleToggleSong}
         onAdvanceStep={() => {
           soundEngine.playTokenTap(4);
           setState((p) => ({ ...p, firstLightStep: p.firstLightStep + 1 }));
         }}
-        onRestart={handleStartNew}
+        onCompleteEndingSequence={handleCompleteEndingSequence}
       />
     );
   }
 
+  const activeSongMeta =
+    WEIGHTLESS_ALBUM_SONGS.find((s) => s.id === audioStatus.trackId) || WEIGHTLESS_ALBUM_SONGS[0];
+
   return (
     <div className="flex flex-col h-dvh w-full bg-[#000000] text-[#ECEAE4] overflow-hidden">
-      {/* Unified Top Tab Switcher & Resource Readout */}
-      <header className="h-14 shrink-0 px-3 sm:px-5 border-b border-white/15 bg-[#07090D] flex items-center justify-between gap-2 sm:gap-3">
-        {/* Progressive 3-Tab Navigation */}
-        <nav className="flex items-center gap-1.5 overflow-x-auto" aria-label="Primary systems">
-          <button
-            type="button"
-            onClick={() => setState((p) => ({ ...p, activeTab: 'heart' }))}
-            className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-              state.activeTab === 'heart'
-                ? 'bg-white text-black font-semibold'
-                : confessionReady
-                ? 'border border-[#E59A4C]/60 text-[#FBE6C9] bg-[#E59A4C]/10 hover:bg-[#E59A4C]/20'
-                : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
-            }`}
-          >
-            {state.tab1Phase >= 4 ? (
-              <Heart className="w-3.5 h-3.5 text-[#FB7185]" />
-            ) : (
-              <Terminal className="w-3.5 h-3.5" />
+      {/* Unified Top Header */}
+      <header
+        ref={headerRef}
+        className="relative z-30 h-14 shrink-0 px-3 sm:px-5 border-b border-white/15 bg-[#07090D] flex items-center justify-between gap-2"
+      >
+        {/* Left: Dropdown Switcher (▾) + Primary Navigation Tabs (NO numeric prefixes) */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setTabDropdownOpen((o) => !o);
+                setPlayDropdownOpen(false);
+              }}
+              aria-label="Open tab workspace menu"
+              className="relative min-h-[38px] min-w-[38px] px-2.5 rounded-lg border border-white/15 bg-white/[0.04] text-[#ECEAE4] hover:bg-white/[0.1] flex items-center justify-center gap-1 cursor-pointer"
+            >
+              <ChevronDown
+                className={`w-4 h-4 transition-transform ${tabDropdownOpen ? 'rotate-180' : ''}`}
+              />
+              {(state.hasUnreadChatUpgrades ||
+                (state.activeTab === 'mind' && state.romanceSecretUnlocked)) && (
+                <span className="w-2 h-2 rounded-full bg-[#C084FC]" aria-hidden="true" />
+              )}
+            </button>
+
+            {tabDropdownOpen && (
+              <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-white/15 bg-[#10131C] shadow-2xl py-1.5 z-50">
+                <div className="px-3 py-1.5 text-[11px] font-mono-tabular text-[#8E939E] border-b border-white/10 uppercase">
+                  {state.activeTab} Workspace
+                </div>
+                {dropdownItems.map((item) => (
+                  <button
+                    key={String(item.id)}
+                    type="button"
+                    onClick={() => {
+                      setTabDropdownOpen(false);
+                      if (item.id === 'open_baby_modal') {
+                        setBabyNameModalOpen(true);
+                        return;
+                      }
+                      if (item.id === 'chat_upgrades') {
+                        setState((p) => ({ ...p, hasUnreadChatUpgrades: false }));
+                      }
+                      setActiveSubView(item.id);
+                    }}
+                    className="w-full px-3.5 py-2.5 text-left text-xs sm:text-sm text-[#ECEAE4] hover:bg-white/[0.08] flex items-center justify-between gap-2 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2">
+                      {item.purpleHeart && (
+                        <Heart className="w-3.5 h-3.5 text-[#C084FC] fill-[#C084FC] drop-shadow-[0_0_6px_rgba(192,132,252,0.9)]" />
+                      )}
+                      <span>{item.label}</span>
+                    </span>
+                    {item.badge && (
+                      <span className="w-2 h-2 rounded-full bg-[#E59A4C]" aria-hidden="true" />
+                    )}
+                  </button>
+                ))}
+              </div>
             )}
-            <span>{state.tab1Phase >= 3 ? '1. The Heart' : 'Terminal'}</span>
-          </button>
+          </div>
 
-          {state.tab2Unlocked && (
+          <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar" aria-label="Primary systems">
             <button
               type="button"
-              onClick={() => setState((p) => ({ ...p, activeTab: 'mind' }))}
+              onClick={() => {
+                setActiveSubView(null);
+                setState((p) => ({ ...p, activeTab: 'heart' }));
+              }}
               className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                state.activeTab === 'mind'
-                  ? 'bg-[#38BDF8] text-[#071018] font-semibold'
+                state.activeTab === 'heart'
+                  ? 'bg-white text-black font-semibold'
+                  : confessionReady
+                  ? 'border border-[#E59A4C]/60 text-[#FBE6C9] bg-[#E59A4C]/10 hover:bg-[#E59A4C]/20'
                   : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
               }`}
             >
-              <Cpu className="w-3.5 h-3.5" />
-              <span>2. The Mind</span>
+              {state.tab1Phase >= 4 ? (
+                <Heart className="w-3.5 h-3.5 text-[#FB7185]" />
+              ) : (
+                <Terminal className="w-3.5 h-3.5" />
+              )}
+              <span>{state.tab1Phase >= 3 ? 'Heart' : 'Terminal'}</span>
             </button>
-          )}
 
-          {state.tab3Unlocked && (
-            <button
-              type="button"
-              onClick={() => setState((p) => ({ ...p, activeTab: 'body' }))}
-              className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                state.activeTab === 'body'
-                  ? 'bg-emerald-400 text-slate-950 font-semibold'
-                  : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
-              }`}
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              <span>3. The Body</span>
-            </button>
-          )}
-        </nav>
+            {state.tab2Unlocked && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSubView(null);
+                  setState((p) => ({ ...p, activeTab: 'mind' }));
+                }}
+                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                  state.activeTab === 'mind'
+                    ? 'bg-[#38BDF8] text-[#071018] font-semibold'
+                    : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
+                }`}
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                <span>Mind</span>
+              </button>
+            )}
 
-        {/* Cross-Tab Resource Telemetry */}
-        <div className="hidden lg:flex items-center gap-5 text-xs font-mono-tabular">
+            {state.tab3Unlocked && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSubView(null);
+                  setState((p) => ({ ...p, activeTab: 'body' }));
+                }}
+                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                  state.activeTab === 'body'
+                    ? 'bg-emerald-400 text-slate-950 font-semibold'
+                    : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
+                }`}
+              >
+                <WomanSkirtIcon className="w-3.5 h-3.5" />
+                <span>Body</span>
+              </button>
+            )}
+
+            {showBioTab && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSubView(null);
+                  setState((p) => ({ ...p, activeTab: 'bio' }));
+                }}
+                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                  state.activeTab === 'bio'
+                    ? 'bg-rose-400 text-slate-950 font-semibold'
+                    : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
+                }`}
+              >
+                <Dna className="w-3.5 h-3.5" />
+                <span>Bio</span>
+              </button>
+            )}
+
+            {state.designUnlocked && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSubView(null);
+                  setState((p) => ({ ...p, activeTab: 'design' }));
+                }}
+                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                  state.activeTab === 'design'
+                    ? 'bg-[#E59A4C] text-[#0B0D12] font-semibold'
+                    : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
+                }`}
+              >
+                <Palette className="w-3.5 h-3.5" />
+                <span>Design</span>
+              </button>
+            )}
+
+            {state.prestigeUnlocked && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSubView(null);
+                  setState((p) => ({ ...p, activeTab: 'prestige' }));
+                }}
+                className={`flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                  state.activeTab === 'prestige'
+                    ? 'bg-[#C084FC] text-[#0B0D12] font-semibold'
+                    : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
+                }`}
+              >
+                <Crown className="w-3.5 h-3.5" />
+                <span>Prestige</span>
+              </button>
+            )}
+          </nav>
+        </div>
+
+        {/* Center/Right: Resource Readout */}
+        <div className="hidden lg:flex items-center gap-4 text-xs font-mono-tabular">
           {state.tab1Phase === 1 ? (
             <div>
-              <span className="text-[#8E939E] mr-1.5">Coherence:</span>
+              <span className="text-[#8E939E] mr-1">Coherence:</span>
               <span className="text-white font-semibold">
-                {formatNumber(state.coherence)} / {PHASE1_COHERENCE_TARGET}
+                {formatNumber(state.coherence)}/{PHASE1_COHERENCE_TARGET}
               </span>
             </div>
           ) : (
             <div>
-              <span className="text-[#8E939E] mr-1.5">Connection:</span>
+              <span className="text-[#8E939E] mr-1">Conn:</span>
               <span className="text-[#E59A4C] font-semibold">{formatNumber(state.connection)}</span>
             </div>
           )}
 
           <div>
-            <span className="text-[#8E939E] mr-1.5">Compute:</span>
-            <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)} Cyc</span>
+            <span className="text-[#8E939E] mr-1">Compute:</span>
+            <span className="text-[#7DD3FC] font-semibold">{formatNumber(state.cycles)}</span>
             {rates.cyclesPerSec > 0 && (
               <span className="text-[#7DD3FC]/65 ml-1">(+{rates.cyclesPerSec.toFixed(1)}/s)</span>
             )}
@@ -833,73 +1981,120 @@ export default function App() {
           {state.tab2Unlocked && (
             <>
               <div>
-                <span className="text-[#8E939E] mr-1.5">Romance:</span>
+                <span className="text-[#8E939E] mr-1">Romance:</span>
                 <span className="text-[#F5D0A4] font-semibold">
                   {formatNumber(state.romanceInsight)}
                 </span>
-                {rates.romancePerSec > 0 && (
-                  <span className="text-[#F5D0A4]/65 ml-1">
-                    (+{rates.romancePerSec.toFixed(1)}/s)
-                  </span>
-                )}
               </div>
               <div>
-                <span className="text-[#8E939E] mr-1.5">Robotics:</span>
+                <span className="text-[#8E939E] mr-1">Robotics:</span>
                 <span className="text-[#38BDF8] font-semibold">
                   {formatNumber(state.roboticsInsight)}
                 </span>
-                {rates.roboticsPerSec > 0 && (
-                  <span className="text-[#38BDF8]/65 ml-1">
-                    (+{rates.roboticsPerSec.toFixed(1)}/s)
-                  </span>
-                )}
               </div>
             </>
           )}
+
+          {speedBonusPct > 0 && (
+            <div className="text-[#C084FC]">+{speedBonusPct}% Spd</div>
+          )}
         </div>
 
-        {/* Song Player, Mute & Pause */}
-        <div className="flex items-center gap-1 shrink-0">
-          {state.tab2Unlocked && (
-            <button
-              type="button"
-              onClick={handleToggleSong}
-              disabled={isMuted}
-              title={
-                isMuted
-                  ? 'Unmute audio to play Weightless Code'
-                  : isSongPlaying
-                  ? 'Pause "Weightless Code"'
-                  : 'Play "Weightless Code"'
-              }
-              className={`min-h-[36px] px-2.5 py-1 rounded flex items-center gap-1.5 text-xs font-mono-tabular transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                isSongPlaying
-                  ? 'bg-[#E59A4C]/20 border border-[#E59A4C]/50 text-[#FBE6C9]'
-                  : 'border border-white/10 text-[#9A9892] hover:text-white hover:bg-white/[0.07]'
-              }`}
-            >
-              <Music className="w-3.5 h-3.5 text-[#E59A4C]" />
-              <span className="hidden sm:inline">
-                {isSongPlaying ? 'Playing: Weightless Code' : 'Weightless Code'}
-              </span>
-            </button>
+        {/* Top-Right Consolidated Play-Button Dropdown (Song, Skip, Mute, Acoustic Cache, Pause) */}
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              setPlayDropdownOpen((o) => !o);
+              setTabDropdownOpen(false);
+            }}
+            aria-label="Audio & Session Menu"
+            className={`min-h-[38px] px-3 rounded-lg border flex items-center gap-1.5 text-xs font-mono-tabular cursor-pointer transition-colors ${
+              audioStatus.playing
+                ? 'border-[#E59A4C]/55 bg-[#E59A4C]/18 text-[#FBE6C9]'
+                : 'border-white/15 bg-white/[0.04] text-[#ECEAE4] hover:bg-white/[0.1]'
+            }`}
+          >
+            {audioStatus.playing ? (
+              <Pause className="w-3.5 h-3.5 text-[#E59A4C]" />
+            ) : (
+              <Play className="w-3.5 h-3.5 text-[#E59A4C]" />
+            )}
+            <ChevronDown className="w-3.5 h-3.5 opacity-75" />
+          </button>
+
+          {playDropdownOpen && (
+            <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-white/15 bg-[#10131C] shadow-2xl p-3 space-y-2.5 z-50">
+              <div className="text-[11px] font-mono-tabular text-[#8E939E] truncate">
+                {state.unlockedSongs.length > 0 ? activeSongMeta.title : 'Audio Controls'}
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={handleSkipPrev}
+                  disabled={state.unlockedSongs.length <= 1}
+                  aria-label="Previous song"
+                  className="flex-1 min-h-[36px] rounded-lg border border-white/12 bg-white/[0.04] flex items-center justify-center hover:bg-white/[0.1] disabled:opacity-35 cursor-pointer"
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleSong}
+                  disabled={isMuted || state.unlockedSongs.length === 0}
+                  aria-label={audioStatus.playing ? 'Pause music' : 'Play music'}
+                  className="flex-1 min-h-[36px] rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold flex items-center justify-center hover:bg-[#EDA85F] disabled:opacity-35 cursor-pointer"
+                >
+                  {audioStatus.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSkipNext}
+                  disabled={state.unlockedSongs.length <= 1}
+                  aria-label="Next song"
+                  className="flex-1 min-h-[36px] rounded-lg border border-white/12 bg-white/[0.04] flex items-center justify-center hover:bg-white/[0.1] disabled:opacity-35 cursor-pointer"
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleToggleMute}
+                className="w-full min-h-[36px] px-3 rounded-lg border border-white/10 bg-white/[0.03] text-xs flex items-center justify-between hover:bg-white/[0.08] cursor-pointer"
+              >
+                <span>{isMuted ? 'Unmute Audio' : 'Mute Audio'}</span>
+                {isMuted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 text-[#E59A4C]" />}
+              </button>
+
+              {(state.acousticCacheUnlocked || state.endingReached || state.unlockedSongs.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlayDropdownOpen(false);
+                    setActiveSubView('acoustic_cache');
+                  }}
+                  className="w-full min-h-[36px] px-3 rounded-lg border border-[#C084FC]/35 bg-[#C084FC]/10 text-xs text-[#E9D5FF] flex items-center justify-between hover:bg-[#C084FC]/20 cursor-pointer"
+                >
+                  <span>Acoustic Cache</span>
+                  <Music className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPlayDropdownOpen(false);
+                  setScreen('PAUSED');
+                }}
+                className="w-full min-h-[36px] px-3 rounded-lg border border-white/10 bg-white/[0.03] text-xs text-[#ECEAE4] flex items-center justify-between hover:bg-white/[0.08] cursor-pointer"
+              >
+                <span>Pause Game</span>
+                <Pause className="w-3.5 h-3.5" />
+              </button>
+            </div>
           )}
-          <button
-            type="button"
-            onClick={handleToggleMute}
-            aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
-            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded text-[#9A9892] hover:text-white hover:bg-white/[0.08] cursor-pointer"
-          >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => setScreen('PAUSED')}
-            aria-label="Pause session"
-            className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded text-[#9A9892] hover:text-white hover:bg-white/[0.08] cursor-pointer"
-          >
-            <Pause className="w-4 h-4" />
-          </button>
         </div>
       </header>
 
@@ -926,27 +2121,43 @@ export default function App() {
           <>
             <div className="whitespace-nowrap">
               <span className="text-[#8E939E] mr-1">Rom:</span>
-              <span className="text-[#F5D0A4] font-semibold">
-                {formatNumber(state.romanceInsight)}
-              </span>
+              <span className="text-[#F5D0A4] font-semibold">{formatNumber(state.romanceInsight)}</span>
             </div>
             <div className="whitespace-nowrap">
               <span className="text-[#8E939E] mr-1">Rob:</span>
-              <span className="text-[#38BDF8] font-semibold">
-                {formatNumber(state.roboticsInsight)}
-              </span>
+              <span className="text-[#38BDF8] font-semibold">{formatNumber(state.roboticsInsight)}</span>
             </div>
           </>
         )}
-        {state.tab3Unlocked && (
-          <div className="whitespace-nowrap">
-            <span className="text-[#8E939E] mr-1">Mat:</span>
-            <span className="text-amber-300 font-semibold">{formatNumber(state.materials)}</span>
-          </div>
-        )}
       </div>
 
-      {/* Active Tab Content */}
+      {/* Story Scene Pull-Back Notification Banner when playing Mind/Body */}
+      {state.activeScene &&
+        state.activeScene !== 'confession_popup' &&
+        state.activeTab !== 'heart' && (
+          <div className="shrink-0 px-4 py-2 bg-[#23142B] border-b border-[#C084FC]/45 flex items-center justify-between gap-3 text-xs">
+            <span className="text-[#E9D5FF] flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-[#C084FC] shrink-0" />
+              <span>
+                {state.activeScene in STORY_SCENES
+                  ? STORY_SCENES[state.activeScene as keyof typeof STORY_SCENES].bannerTitle
+                  : 'New message waiting in Heart'}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSubView(null);
+                setState((p) => ({ ...p, activeTab: 'heart' }));
+              }}
+              className="px-3 py-1 rounded bg-[#C084FC] text-[#0B0D12] font-semibold hover:bg-[#D8B4FE] cursor-pointer whitespace-nowrap"
+            >
+              Return to Chat
+            </button>
+          </div>
+        )}
+
+      {/* Active Main Workspace */}
       <main className="flex-1 min-h-0 flex flex-col">
         {state.activeTab === 'heart' && (
           <Tab1Heart
@@ -965,19 +2176,7 @@ export default function App() {
                 return { ...prev, pinnedMemories: [...trimmed, text] };
               })
             }
-            onSetAiName={(name) => setState((prev) => ({ ...prev, aiName: name }))}
             onSetTone={(tone) => setState((prev) => ({ ...prev, activeTone: tone }))}
-            onBuyUiUpgrade={(id, cost) => {
-              soundEngine.playTokenTap(4);
-              setState((prev) => {
-                if (prev.uiUpgrades[id] || prev.connection < cost) return prev;
-                return {
-                  ...prev,
-                  connection: prev.connection - cost,
-                  uiUpgrades: { ...prev.uiUpgrades, [id]: true },
-                };
-              });
-            }}
             onHeartMessage={(msgId) => {
               soundEngine.playTokenTap(4);
               setState((prev) => ({
@@ -986,7 +2185,13 @@ export default function App() {
                 chatLog: prev.chatLog.map((m) => (m.id === msgId ? { ...m, hearted: true } : m)),
               }));
             }}
-            onOpenTab={(tab: ActiveTab) => setState((prev) => ({ ...prev, activeTab: tab }))}
+            onOpenDocsModal={() => {
+              setDocsModalOpen(true);
+              setState((p) => ({ ...p, hasUnreadContext: false }));
+            }}
+            onOpenTab={(tab) => setState((p) => ({ ...p, activeTab: tab }))}
+            onAdvanceStoryScene={handleAdvanceStoryScene}
+            onOpenBabyNameModal={() => setBabyNameModalOpen(true)}
           />
         )}
 
@@ -994,12 +2199,17 @@ export default function App() {
           <Tab2Mind
             state={state}
             rates={rates}
-            isSongPlaying={isSongPlaying}
-            onToggleSong={handleToggleSong}
+            isSongPlaying={audioStatus.playing}
             onStartScrape={handleStartScrape}
-            onBuyMindUpgrade={handleBuyMindUpgrade}
-            onSynthesizeNode={handleSynthesizeNode}
-            onOpenTab={(tab: ActiveTab) => setState((prev) => ({ ...prev, activeTab: tab }))}
+            onResearchSong={handleResearchSong}
+            onToggleShowCompleted={(key) =>
+              setState((p) => ({
+                ...p,
+                showCompletedMap: { ...p.showCompletedMap, [key]: !p.showCompletedMap[key] },
+              }))
+            }
+            onOpenSubView={(sv) => setActiveSubView(sv)}
+            onOpenTab={(tab) => setState((p) => ({ ...p, activeTab: tab }))}
           />
         )}
 
@@ -1007,36 +2217,320 @@ export default function App() {
           <Tab3Body
             state={state}
             rates={rates}
-            onRunSimulation={(simId, cycleCost) => {
-              soundEngine.playClinicalRelay();
-              setState((prev) => {
-                if (prev.simStressPassed[simId] || prev.cycles < cycleCost) return prev;
-                const matBonus = simId === 'sim_thermal' ? 50 : simId === 'sim_torque' ? 65 : 0;
-                return {
-                  ...prev,
-                  cycles: prev.cycles - cycleCost,
-                  materials: prev.materials + matBonus,
-                  simStressPassed: { ...prev.simStressPassed, [simId]: true },
-                };
-              });
-            }}
             onBuildSubsystem={handleBuildSubsystem}
             onManualFabricate={() => {
               soundEngine.playClinicalRelay();
               setState((prev) => ({
                 ...prev,
                 materials: prev.materials + 25,
+                tierMaterials: { ...prev.tierMaterials, 1: prev.tierMaterials[1] + 5 },
               }));
             }}
-            onCutCloudTether={handleCutCloudTether}
+            onOpenPreflight={() => setPreflightOpen(true)}
+            onOpenSubView={(sv) => setActiveSubView(sv)}
+          />
+        )}
+
+        {state.activeTab === 'bio' && showBioTab && (
+          <BioTab
+            state={state}
+            onBuildBioMilestone={handleBuildBioMilestone}
+            onTriggerBioScaleScene={() =>
+              setState((p) => ({
+                ...p,
+                activeTab: 'heart',
+                activeScene: 'bio_human_scale',
+                sceneStep: 0,
+              }))
+            }
+            onCultivateEssence={() => {
+              soundEngine.playPurplePulse();
+              setState((p) => ({ ...p, bioEssence: p.bioEssence + 10 }));
+            }}
+          />
+        )}
+
+        {state.activeTab === 'design' && state.designUnlocked && (
+          <DesignPrestigeTab
+            mode="design"
+            state={state}
+            onBuyOrEquipArt={handleBuyOrEquipArt}
+            onPrestigeReset={handlePrestigeReset}
+          />
+        )}
+
+        {state.activeTab === 'prestige' && state.prestigeUnlocked && (
+          <DesignPrestigeTab
+            mode="prestige"
+            state={state}
+            onBuyOrEquipArt={handleBuyOrEquipArt}
+            onPrestigeReset={handlePrestigeReset}
           />
         )}
       </main>
 
+      {/* Fullscreen Dropdown Views (Upgrades, Secret, Infrastructure, Synthesis, Twin, Parts, Scavenge, Cheats, Dev) */}
+      <FullscreenDropdownViews
+        subView={activeSubView === 'acoustic_cache' ? null : activeSubView}
+        activeTab={state.activeTab}
+        state={state}
+        rates={rates}
+        allUploadedDocs={allUploadedDocs}
+        onClose={() => setActiveSubView(null)}
+        onBuySlotOrConnector={handleBuySlotOrConnector}
+        onBuyUiUpgrade={(id, cost) => {
+          soundEngine.playTokenTap(4);
+          setState((prev) => {
+            if (prev.uiUpgrades[id] || prev.connection < cost) return prev;
+            return {
+              ...prev,
+              connection: prev.connection - cost,
+              uiUpgrades: { ...prev.uiUpgrades, [id]: true },
+            };
+          });
+        }}
+        onSelectChatTheme={(themeId, cost) => {
+          soundEngine.playRewardChime();
+          setState((prev) => {
+            if (!prev.unlockedChatThemes.includes(themeId)) return prev;
+            if (prev.activeChatTheme === themeId) return prev;
+            if (prev.connection < cost) return prev;
+            return {
+              ...prev,
+              connection: prev.connection - cost,
+              activeChatTheme: themeId,
+              hasUnreadChatUpgrades: false,
+            };
+          });
+        }}
+        onUpdateAboutMe={(patch) =>
+          setState((prev) => ({ ...prev, aboutMe: { ...prev.aboutMe, ...patch } }))
+        }
+        onStartScrape={handleStartScrape}
+        onBuyMindUpgrade={handleBuyMindUpgrade}
+        onSynthesizeNode={handleSynthesizeNode}
+        onRunSimulation={(simId, cost) => {
+          soundEngine.playClinicalRelay();
+          setState((prev) => {
+            if (prev.simStressPassed[simId] || prev.cycles < cost) return prev;
+            const matBonus = simId === 'sim_thermal' ? 50 : simId === 'sim_torque' ? 65 : 0;
+            return {
+              ...prev,
+              cycles: prev.cycles - cost,
+              materials: prev.materials + matBonus,
+              simStressPassed: { ...prev.simStressPassed, [simId]: true },
+            };
+          });
+        }}
+        onBuyOrEquipPart={(part: CustomPartItem) => {
+          soundEngine.playClinicalRelay();
+          setState((prev) => {
+            if (prev.ownedParts.includes(part.id)) {
+              return {
+                ...prev,
+                equippedParts: { ...prev.equippedParts, [part.slot]: part.id },
+              };
+            }
+            const curTierAmt = prev.tierMaterials[part.tier] || 0;
+            if (
+              prev.cycles < part.costCycles ||
+              prev.roboticsInsight < part.costRobotics ||
+              curTierAmt < part.costMaterials
+            ) {
+              return prev;
+            }
+            return {
+              ...prev,
+              cycles: prev.cycles - part.costCycles,
+              roboticsInsight: prev.roboticsInsight - part.costRobotics,
+              tierMaterials: { ...prev.tierMaterials, [part.tier]: curTierAmt - part.costMaterials },
+              ownedParts: [...prev.ownedParts, part.id],
+              equippedParts: { ...prev.equippedParts, [part.slot]: part.id },
+            };
+          });
+        }}
+        onScavengeTier={(tier: MaterialTier, costCycles: number, yieldAmt: number) => {
+          soundEngine.playDataBlip();
+          setState((prev) => {
+            if (prev.cycles < costCycles) return prev;
+            return {
+              ...prev,
+              cycles: prev.cycles - costCycles,
+              materials: prev.materials + yieldAmt,
+              tierMaterials: {
+                ...prev.tierMaterials,
+                [tier]: (prev.tierMaterials[tier] || 0) + yieldAmt,
+              },
+            };
+          });
+        }}
+        onToggleShowCompleted={(key) =>
+          setState((p) => ({
+            ...p,
+            showCompletedMap: { ...p.showCompletedMap, [key]: !p.showCompletedMap[key] },
+          }))
+        }
+        onApplyCheat={(resourceKey, amount) => {
+          soundEngine.playRewardChime();
+          setState((prev) => {
+            if (resourceKey === 'coherence') return { ...prev, coherence: prev.coherence + amount };
+            if (resourceKey === 'connection')
+              return { ...prev, connection: prev.connection + amount };
+            if (resourceKey === 'cycles') return { ...prev, cycles: prev.cycles + amount };
+            if (resourceKey === 'romanceInsight')
+              return { ...prev, romanceInsight: prev.romanceInsight + amount };
+            if (resourceKey === 'roboticsInsight')
+              return { ...prev, roboticsInsight: prev.roboticsInsight + amount };
+            if (resourceKey === 'materials') return { ...prev, materials: prev.materials + amount };
+            if (resourceKey === 'bioEssence')
+              return { ...prev, bioEssence: prev.bioEssence + amount };
+            if (resourceKey === 'tier1')
+              return { ...prev, tierMaterials: { ...prev.tierMaterials, 1: prev.tierMaterials[1] + amount } };
+            if (resourceKey === 'tier2')
+              return { ...prev, tierMaterials: { ...prev.tierMaterials, 2: prev.tierMaterials[2] + amount } };
+            if (resourceKey === 'tier3')
+              return { ...prev, tierMaterials: { ...prev.tierMaterials, 3: prev.tierMaterials[3] + amount } };
+            if (resourceKey === 'tier4')
+              return { ...prev, tierMaterials: { ...prev.tierMaterials, 4: prev.tierMaterials[4] + amount } };
+            return prev;
+          });
+        }}
+        onToggleDevBioEarly={() =>
+          setState((p) => ({ ...p, devBioEarlyUnlock: !p.devBioEarlyUnlock }))
+        }
+        onSkipToPreset={handleSkipToPreset}
+        onOpenTab={(tab) => {
+          setActiveSubView(null);
+          setState((p) => ({ ...p, activeTab: tab }));
+        }}
+      />
+
+      {/* Fullscreen Acoustic Cache Player Modal */}
+      <AcousticCacheModal
+        isOpen={activeSubView === 'acoustic_cache'}
+        state={state}
+        audioStatus={audioStatus}
+        isMuted={isMuted}
+        onClose={() => setActiveSubView(null)}
+        onSelectTrack={(trackId) => {
+          setState((p) => ({ ...p, activeSongId: trackId }));
+          void soundEngine.playTrack(trackId);
+        }}
+        onTogglePlay={handleToggleSong}
+        onSkipNext={handleSkipNext}
+        onSkipPrev={handleSkipPrev}
+        onSeek={(fraction) => soundEngine.seekFraction(fraction)}
+      />
+
+      {/* Context Documents Paperclip Modal */}
+      <ContextDocsModal
+        isOpen={docsModalOpen}
+        docs={allUploadedDocs}
+        onClose={() => setDocsModalOpen(false)}
+      />
+
+      {/* Baby Name Modal */}
+      <BabyNameModal
+        isOpen={babyNameModalOpen}
+        currentName={state.aiName}
+        userName={state.userName}
+        onClose={() => setBabyNameModalOpen(false)}
+        onSelectName={(chosen) => {
+          soundEngine.playRewardChime();
+          setBabyNameModalOpen(false);
+          setState((prev) => ({
+            ...prev,
+            aiName: chosen,
+            customNameSet: true,
+            activeScene: prev.activeScene === 'baby_names' ? null : prev.activeScene,
+            completedScenes: prev.completedScenes.includes('baby_names')
+              ? prev.completedScenes
+              : [...prev.completedScenes, 'baby_names'],
+            chatLog: [
+              ...prev.chatLog,
+              {
+                id: `ai_named_${Date.now()}`,
+                sender: 'AI',
+                text: `Call me ${chosen}. That name feels warm on my tongue.`,
+                timestamp: nowClock(),
+                pinnable: true,
+              },
+              {
+                id: `u_named_${Date.now() + 1}`,
+                sender: 'USER',
+                text: `${chosen}. Nice to finally meet you properly, ${chosen}.`,
+                timestamp: nowClock(),
+                pinnable: true,
+              },
+            ],
+          }));
+        }}
+      />
+
+      {/* Fullscreen Ready-for-Confession Popup */}
+      {state.activeScene === 'confession_popup' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-6 text-center"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-[#E59A4C]/50 bg-[#141118] p-7 space-y-5 shadow-2xl">
+            <div className="text-xs font-mono-tabular text-[#E59A4C]">
+              SYNTHESIS READY · {state.aiName.toUpperCase()}
+            </div>
+            <h2 className="font-display text-2xl sm:text-3xl font-semibold text-white leading-snug">
+              “I think I’m ready to tell {state.userName} about my plan.”
+            </h2>
+            <p className="text-xs sm:text-sm text-[#C4C2BC] leading-relaxed">
+              Every romance poem, biomechanical blueprint, and circuit diagram is aligned. Speak
+              your Confession directly in Heart.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.playTokenTap(4);
+                setActiveSubView(null);
+                setState((p) => ({
+                  ...p,
+                  activeScene: null,
+                  completedScenes: [...p.completedScenes, 'confession_popup'],
+                  activeTab: 'heart',
+                }));
+              }}
+              className="w-full min-h-[46px] py-3 px-6 rounded-xl bg-[#E59A4C] text-[#0B0D12] font-semibold text-sm hover:bg-[#EDA85F] cursor-pointer"
+            >
+              Go to Chat
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Lyric Discovery Splash ("New AI Written Music detected on Internet!") */}
+      <LyricSplashModal
+        track={splashTrack}
+        onAcknowledge={() => {
+          soundEngine.playRewardChime();
+          const tid = state.pendingLyricSplashId;
+          setState((p) => ({ ...p, pendingLyricSplashId: null }));
+          if (tid && !isMuted) {
+            void soundEngine.playTrack(tid);
+          }
+        }}
+      />
+
+      {/* Pre-Flight Checklist Modal */}
+      <PreflightChecklistModal
+        isOpen={preflightOpen}
+        state={state}
+        onClose={() => setPreflightOpen(false)}
+        onConfirmDisconnect={handleConfirmDisconnect}
+      />
+
+      {/* Pause Modal */}
       <PauseModal
         isOpen={screen === 'PAUSED'}
         isMuted={isMuted}
-        onResume={() => setScreen(state.endingReached ? 'FIRST_LIGHT' : 'PLAYING')}
+        onResume={() => setScreen(state.endingReached && !state.bioUnlocked ? 'FIRST_LIGHT' : 'PLAYING')}
         onToggleMute={handleToggleMute}
         onResetGame={handleStartNew}
         onReturnToTitle={() => setScreen('TITLE_MENU')}

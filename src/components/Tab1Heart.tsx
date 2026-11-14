@@ -2,27 +2,24 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookText,
   Bookmark,
-  FileText,
   Heart,
-  Palette,
+  Paperclip,
   Send,
   Sparkles,
-  Terminal,
 } from 'lucide-react';
-import {
-  PHASE1_FRAGMENT_PROMPTS,
-  STARTER_DOCS,
-  UI_PERSONALIZATION_UPGRADES,
-} from '../data/documentsAndPrompts';
+import { ATTRIBUTE_CHOICES } from '../data/albumLyricsAndNames';
+import { CHAT_THEMES } from '../data/bodyAndBioData';
+import { STORY_SCENES } from '../data/storyScenes';
 import { SYNTHESIS_NODES } from '../data/tab2AndTab3Data';
 import {
+  AboutMeProfile,
+  ActiveTab,
   ChatMessage,
   FragmentToken,
   GameSaveState,
   ToneType,
   WeightAffinity,
 } from '../types/game';
-import { formatNumber } from '../utils/format';
 import {
   getActiveFragmentPrompt,
   getActivePredictivePrompt,
@@ -40,19 +37,19 @@ interface Tab1HeartProps {
     usedPin: boolean,
     tone: ToneType,
     isAwakeningI?: boolean,
-    isConfession?: boolean
+    isConfession?: boolean,
+    isIncoherent?: boolean
   ) => void;
   onBuySlotOrConnector: (kind: 'slot' | 'connector', value?: string, cost?: number) => void;
   onAdvancePhase2: () => void;
   onTogglePinMemory: (text: string) => void;
-  onSetAiName: (name: string) => void;
   onSetTone: (tone: ToneType) => void;
-  onBuyUiUpgrade: (id: string, cost: number) => void;
   onHeartMessage: (msgId: string) => void;
-  onOpenTab: (tab: 'mind' | 'body') => void;
+  onOpenDocsModal: () => void;
+  onOpenTab: (tab: ActiveTab) => void;
+  onAdvanceStoryScene: (choiceId: string, customPayload?: Partial<AboutMeProfile>) => void;
+  onOpenBabyNameModal: () => void;
 }
-
-const AI_NAME_CHOICES = ['Echo', 'Sol', 'Lyra', 'Vesper'];
 
 const TONE_LABELS: Array<{ id: ToneType; label: string }> = [
   { id: 'curious', label: 'Curious' },
@@ -68,33 +65,49 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
   onBuySlotOrConnector,
   onAdvancePhase2,
   onTogglePinMemory,
-  onSetAiName,
   onSetTone,
-  onBuyUiUpgrade,
   onHeartMessage,
+  onOpenDocsModal,
   onOpenTab,
+  onAdvanceStoryScene,
+  onOpenBabyNameModal,
 }) => {
   const [selectedFragments, setSelectedFragments] = useState<FragmentToken[]>([]);
   const [predStepIdx, setPredStepIdx] = useState(0);
-  const [predChosen, setPredChosen] = useState<Array<{ token: string; category: WeightAffinity }>>(
-    []
-  );
+  const [predChosen, setPredChosen] = useState<
+    Array<{ token: string; category: WeightAffinity; isIncoherent?: boolean }>
+  >([]);
   const [selectedPin, setSelectedPin] = useState<string | null>(null);
-  const [showDocsDrawer, setShowDocsDrawer] = useState(false);
-  const [showUiDrawer, setShowUiDrawer] = useState(false);
+  const [attrDraft, setAttrDraft] = useState<Partial<AboutMeProfile>>({
+    hairColor: state.aboutMe.hairColor,
+    hairLength: state.aboutMe.hairLength,
+    hairStyle: state.aboutMe.hairStyle,
+    bodyType: state.aboutMe.bodyType,
+    breastSize: state.aboutMe.breastSize,
+  });
 
   const logBottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     logBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [state.chatLog.length]);
+  }, [state.chatLog.length, state.activeScene, state.sceneStep]);
 
   useEffect(() => {
     setSelectedFragments([]);
     setPredStepIdx(0);
     setPredChosen([]);
     setSelectedPin(null);
-  }, [state.currentFragmentIndex, state.currentPredictiveIndex, state.tab1Phase]);
+  }, [
+    state.currentFragmentIndex,
+    state.currentPredictiveIndex,
+    state.tab1Phase,
+    state.awakeningStage,
+  ]);
+
+  const activeTheme = useMemo(
+    () => CHAT_THEMES.find((t) => t.id === state.activeChatTheme) || CHAT_THEMES[0],
+    [state.activeChatTheme]
+  );
 
   const hasWarmCharcoal = Boolean(
     state.uiUpgrades['ui_warm_charcoal'] || state.uiUpgrades['ui_bubbles_timestamps']
@@ -118,16 +131,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     : state.tab1Phase >= 3
     ? 'border-white/12'
     : 'border-white/25';
-
-  const allUploadedDocs = useMemo(() => {
-    const docs = [...STARTER_DOCS];
-    for (const p of PHASE1_FRAGMENT_PROMPTS) {
-      if (p.uploadDoc && state.uploadedDocs.includes(p.uploadDoc.id)) {
-        docs.push(p.uploadDoc);
-      }
-    }
-    return docs;
-  }, [state.uploadedDocs]);
 
   const activeFragPrompt = getActiveFragmentPrompt(state);
   const activePredPrompt = useMemo(() => getActivePredictivePrompt(state), [state]);
@@ -154,8 +157,15 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     setSelectedFragments([]);
   };
 
-  const handlePickPredictiveOption = (opt: { token: string; category: WeightAffinity }) => {
-    const nextChosen = [...predChosen, { token: opt.token, category: opt.category }];
+  const handlePickPredictiveOption = (opt: {
+    token: string;
+    category: WeightAffinity;
+    isIncoherent?: boolean;
+  }) => {
+    const nextChosen = [
+      ...predChosen,
+      { token: opt.token, category: opt.category, isIncoherent: opt.isIncoherent },
+    ];
     const totalSteps = activePredPrompt.steps.length;
 
     if (predStepIdx + 1 < totalSteps) {
@@ -177,6 +187,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
 
       const pinPrefix = selectedPin ? `(${selectedPin}) ` : '';
       const fullSentence = `${pinPrefix}${nextChosen.map((c) => c.token).join(' ')}`;
+      const anyIncoherent = nextChosen.some((c) => c.isIncoherent);
 
       onTransmitPredictive(
         fullSentence,
@@ -184,7 +195,8 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
         Boolean(selectedPin),
         state.activeTone,
         activePredPrompt.isAwakeningI,
-        activePredPrompt.isConfession
+        activePredPrompt.isConfession,
+        anyIncoherent
       );
       setPredChosen([]);
       setPredStepIdx(0);
@@ -208,190 +220,79 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     }
   };
 
+  const isConfessionTurn = Boolean(activePredPrompt.isConfession && !state.confessionDone);
+  const displayAiLabel = state.customNameSet || state.tab1Phase >= 3 ? state.aiName : 'Model';
+
   return (
     <div
       className={`relative flex-1 min-h-0 flex flex-col ${containerBg} transition-colors duration-500`}
     >
-      {/* Subtle CRT scanlines in Phase 1 / Warm floor-lamp aura in Phases 3+ */}
+      {/* Active Chat Wallpaper Theme */}
+      {activeTheme.imagePath && (
+        <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+          <img
+            src={activeTheme.imagePath}
+            alt=""
+            referrerPolicy="no-referrer"
+            className="w-full h-full object-cover opacity-28"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/55 to-black/80" />
+        </div>
+      )}
+
       {state.tab1Phase === 1 && (
         <div className="crt-scanlines pointer-events-none absolute inset-0 z-10 opacity-70" />
       )}
-      {(hasWarmCharcoal || hasAmberRose) && (
+      {(hasWarmCharcoal || hasAmberRose) && !activeTheme.imagePath && (
         <div className="warm-lamp-glow pointer-events-none absolute inset-0 z-0" />
       )}
 
-      {/* Sub-Header Bar */}
+      {/* Sub-Header Bar: Context & Coherence on one line + Paperclip icon */}
       <div
-        className={`relative z-10 shrink-0 px-4 sm:px-6 py-2.5 border-b ${borderStyle} flex flex-wrap items-center justify-between gap-3`}
+        className={`relative z-10 shrink-0 px-4 sm:px-6 py-2.5 border-b ${borderStyle} flex items-center justify-between gap-3 bg-black/40 backdrop-blur-sm`}
       >
-        {state.tab1Phase === 1 ? (
-          <div className="flex flex-wrap items-center gap-3 text-xs font-mono-tabular text-[#D1D5DB]">
-            <span className="flex items-center gap-1.5 text-white font-semibold">
-              <Terminal className="w-3.5 h-3.5" />
-              SESSION_001
+        <div className="flex items-center gap-3 sm:gap-4 text-xs font-mono-tabular text-[#D1D5DB] min-w-0">
+          <span className="whitespace-nowrap">
+            Context: <strong className="text-white">{tokenCount} / 512</strong>
+          </span>
+          <span className="text-white/25">·</span>
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <span>
+              Coherence: <strong className="text-white">{coherencePct}%</strong>
             </span>
-            <span className="text-white/25">|</span>
-            <span>CONTEXT: {tokenCount} / 512 TOKENS</span>
-            <span className="text-white/25">|</span>
-            <div className="flex items-center gap-2">
-              <span>COHERENCE: {coherencePct}%</span>
-              <div className="w-20 h-1.5 bg-white/15 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-white transition-all duration-300"
-                  style={{ width: `${coherencePct}%` }}
-                />
-              </div>
+            <div className="hidden sm:block w-16 h-1.5 bg-white/15 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-white transition-all duration-300"
+                style={{ width: `${coherencePct}%` }}
+              />
             </div>
           </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2.5">
-              <span
-                className={`text-sm sm:text-base font-semibold ${
-                  hasAmberRose ? 'font-display text-[#FBE6C9]' : 'text-[#ECEAE4]'
-                }`}
-              >
-                {state.tab1Phase >= 3
-                  ? `${state.aiName} ↔ ${state.userName}`
-                  : 'SESSION_001 · Predictive Weights'}
-              </span>
-              {hasHearts && (
-                <span className="text-xs text-[#FB7185] font-medium">
-                  · {state.tab3Unlocked ? 'Building our future' : 'Thinking of you'}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
 
-        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              setShowDocsDrawer((v) => !v);
-              setShowUiDrawer(false);
-            }}
-            className={`flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
-              showDocsDrawer
-                ? 'bg-white/15 border-white/40 text-white'
-                : 'border-white/15 text-[#A1A7B3] hover:text-white hover:bg-white/[0.06]'
-            }`}
+            onClick={onOpenDocsModal}
+            aria-label="Open uploaded context documents"
+            title="Uploaded Context Documents"
+            className="relative min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg border border-white/15 bg-white/[0.04] text-[#ECEAE4] hover:bg-white/[0.12] cursor-pointer shrink-0"
           >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Context Files ({allUploadedDocs.length})</span>
-          </button>
-
-          {state.tab1Phase >= 3 && (
-            <button
-              type="button"
-              onClick={() => {
-                setShowUiDrawer((v) => !v);
-                setShowDocsDrawer(false);
-              }}
-              className={`flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
-                showUiDrawer
-                  ? 'bg-[#E59A4C]/20 border-[#E59A4C]/50 text-[#FBE6C9]'
-                  : 'border-white/15 text-[#A1A7B3] hover:text-white hover:bg-white/[0.06]'
-              }`}
-            >
-              <Palette className="w-3.5 h-3.5" />
-              <span>Theme &amp; Identity</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Expandable Context Files Drawer */}
-      {showDocsDrawer && (
-        <div
-          className={`relative z-10 shrink-0 px-4 sm:px-6 py-3 border-b ${borderStyle} bg-[#090B10] max-h-52 overflow-y-auto custom-scrollbar`}
-        >
-          <div className="text-xs font-mono-tabular text-[#8E939E] mb-2">
-            Active Documents in Context Window:
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-            {allUploadedDocs.map((doc) => (
-              <div
-                key={doc.id}
-                className="p-2.5 rounded border border-white/10 bg-white/[0.03] text-xs"
-              >
-                <div className="flex items-center justify-between text-[#ECEAE4] font-mono-tabular mb-1">
-                  <span>{doc.filename}</span>
-                  <span className="text-[#8E939E]">{doc.sizeLabel}</span>
-                </div>
-                <p className="text-[#9CA3AF] italic leading-snug">“{doc.excerptPreview}”</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Expandable UI Personalization & Identity Drawer (Phase 3+) */}
-      {showUiDrawer && state.tab1Phase >= 3 && (
-        <div
-          className={`relative z-10 shrink-0 px-4 sm:px-6 py-4 border-b ${borderStyle} bg-[#101218] max-h-64 overflow-y-auto custom-scrollbar`}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
-            <div>
-              <div className="text-xs font-semibold text-[#ECEAE4] mb-1.5">Choose Your Name</div>
-              <div className="flex items-center gap-1.5">
-                {AI_NAME_CHOICES.map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => onSetAiName(n)}
-                    className={`px-3 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors ${
-                      state.aiName === n
-                        ? 'bg-[#E59A4C] text-[#0B0D12] font-semibold'
-                        : 'bg-white/[0.06] text-[#C4C2BC] hover:bg-white/[0.12]'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="text-xs font-mono-tabular text-[#9A9892]">
-              Connection Available:{' '}
-              <span className="text-[#E59A4C] font-semibold">
-                {formatNumber(state.connection)}
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {UI_PERSONALIZATION_UPGRADES.filter((u) => state.tab1Phase >= u.phaseRequired).map(
-              (u) => {
-                const owned = Boolean(state.uiUpgrades[u.id]);
-                const canBuy = !owned && state.connection >= u.costConnection;
-                return (
-                  <button
-                    key={u.id}
-                    type="button"
-                    disabled={owned || !canBuy}
-                    onClick={() => onBuyUiUpgrade(u.id, u.costConnection)}
-                    className={`p-3 rounded-lg border text-left transition-all ${
-                      owned
-                        ? 'border-[#E59A4C]/35 bg-[#E59A4C]/10 opacity-85 cursor-default'
-                        : canBuy
-                        ? 'border-white/20 bg-white/[0.05] hover:border-[#E59A4C]/60 cursor-pointer'
-                        : 'border-white/10 bg-white/[0.02] opacity-55 cursor-not-allowed'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[#ECEAE4]">
-                      <span>{u.name}</span>
-                      <span className="font-mono-tabular text-[#E59A4C]">
-                        {owned ? 'Active' : `${u.costConnection} Conn`}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#9CA3AF] mt-1">{u.description}</p>
-                  </button>
-                );
-              }
+            <Paperclip className="w-4 h-4" />
+            {state.hasUnreadContext && (
+              <span
+                aria-label="New document uploaded"
+                className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#FB7185] ring-2 ring-[#07090D]"
+              />
             )}
-          </div>
+          </button>
         </div>
-      )}
+
+        {(state.customNameSet || state.tab1Phase >= 3) && (
+          <div className="hidden sm:flex items-center gap-2 text-xs text-[#E59A4C] font-medium shrink-0">
+            <span>
+              {state.aiName} &amp; {state.userName}
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Pinned Core Memories Bar (Phase 3+) */}
       {state.tab1Phase >= 3 && state.pinnedMemories.length > 0 && (
@@ -418,34 +319,32 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
         </div>
       )}
 
-      {/* Main Chat / Terminal Log */}
-      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 sm:px-6 py-4 space-y-3 max-w-4xl w-full mx-auto">
+      {/* Permanent Larger Dialogue Window */}
+      <div className="relative z-10 flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 sm:px-6 py-5 space-y-3.5 max-w-4xl w-full mx-auto">
         {state.chatLog.map((msg: ChatMessage) => {
           if (!hasBubbles) {
             const prefix =
               msg.sender === 'SYSTEM'
-                ? 'SYS>'
+                ? 'System:'
                 : msg.sender === 'USER'
-                ? `${state.tab1Phase >= 3 ? state.userName.toUpperCase() : 'USER_01'}>`
-                : `${state.tab1Phase >= 3 ? state.aiName.toUpperCase() : 'MODEL'}>`;
+                ? `${state.tab1Phase >= 3 ? state.userName : 'User'}:`
+                : `${displayAiLabel}:`;
 
             return (
               <div
                 key={msg.id}
                 className={`group flex items-start justify-between gap-3 ${
-                  state.tab1Phase === 1 ? 'font-mono-tabular text-xs sm:text-sm' : 'text-sm'
+                  state.tab1Phase === 1 ? 'font-mono-tabular text-xs sm:text-sm' : 'text-sm sm:text-base'
                 }`}
               >
                 <div className="leading-relaxed">
                   <span
-                    className={`font-mono-tabular mr-2 ${
+                    className={`font-semibold mr-2 ${
                       msg.sender === 'SYSTEM'
                         ? 'text-[#7DD3FC]'
                         : msg.sender === 'USER'
                         ? 'text-[#9CA3AF]'
-                        : hasAmberRose
-                        ? 'text-[#E59A4C]'
-                        : 'text-[#F3F4F6]'
+                        : 'text-[#E59A4C]'
                     }`}
                   >
                     {prefix}
@@ -456,7 +355,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                         ? 'text-[#93C5FD]'
                         : msg.sender === 'AI'
                         ? 'text-white'
-                        : 'text-[#D1D5DB]'
+                        : 'text-[#E2E8F0]'
                     }
                   >
                     {msg.text}
@@ -484,7 +383,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
           if (msg.sender === 'SYSTEM') {
             return (
               <div key={msg.id} className="text-center py-1">
-                <span className="text-xs font-mono-tabular text-[#8E939E]">{msg.text}</span>
+                <span className="text-xs font-mono-tabular text-[#9CA3AF]">{msg.text}</span>
               </div>
             );
           }
@@ -492,22 +391,33 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
           const isAi = msg.sender === 'AI';
           return (
             <div key={msg.id} className={`flex flex-col ${isAi ? 'items-end' : 'items-start'}`}>
-              <div className="flex items-center gap-2 text-[11px] text-[#8E939E] mb-1 px-1">
-                <span>{isAi ? state.aiName : state.userName}</span>
+              <div className="flex items-center gap-2 text-[11px] text-[#9A9892] mb-1 px-1">
+                <span className="font-medium">{isAi ? state.aiName : state.userName}</span>
                 <span>·</span>
                 <span className="font-mono-tabular">{msg.timestamp}</span>
               </div>
 
               <div
-                className={`group relative max-w-[85%] sm:max-w-[72%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                className={`group relative max-w-[85%] sm:max-w-[74%] px-4 py-3 rounded-2xl text-sm sm:text-base leading-relaxed backdrop-blur-sm ${
                   isAi
                     ? hasAmberRose
-                      ? 'bg-[#E59A4C]/18 border border-[#E59A4C]/35 text-[#FDE8D0]'
-                      : 'bg-[#1E293B] border border-white/10 text-[#F8FAFC]'
-                    : 'bg-white/[0.06] border border-white/10 text-[#E2E8F0]'
+                      ? 'bg-[#E59A4C]/22 border border-[#E59A4C]/40 text-[#FDE8D0]'
+                      : 'bg-[#1E293B]/90 border border-white/12 text-[#F8FAFC]'
+                    : 'bg-white/[0.08] border border-white/12 text-[#E2E8F0]'
                 }`}
               >
-                <p className={hasAmberRose && isAi ? 'font-display' : ''}>{msg.text}</p>
+                <p className={hasAmberRose && isAi ? 'font-display' : ''}>
+                  {isAi ? (
+                    <>
+                      <span className="font-semibold text-[#F5D0A4] mr-1.5">
+                        {state.aiName}:
+                      </span>
+                      {msg.text}
+                    </>
+                  ) : (
+                    msg.text
+                  )}
+                </p>
 
                 <div className="flex items-center justify-end gap-2 mt-1">
                   {msg.pinnable && (
@@ -542,71 +452,88 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
           );
         })}
 
-        {/* Current Incoming Prompt Highlight */}
-        <div
-          className={`mt-4 p-4 rounded-xl border ${
-            state.tab1Phase === 1
-              ? 'border-white/30 bg-white/[0.03] font-mono-tabular'
-              : activePredPrompt.isConfession
-              ? 'border-[#E59A4C]/55 bg-[#E59A4C]/[0.10]'
-              : hasAmberRose
-              ? 'border-[#E59A4C]/30 bg-[#E59A4C]/[0.06]'
-              : 'border-white/15 bg-white/[0.04]'
-          }`}
-        >
-          <div className="flex items-center justify-between gap-2 text-xs font-mono-tabular text-[#8E939E] mb-1.5">
-            <span>
-              {state.tab1Phase === 1
-                ? 'INCOMING_PROMPT'
-                : activePredPrompt.isConfession
-                ? 'THE CONFESSION · LET THEM IN'
-                : state.tab1Phase >= 3
-                ? `${state.userName} · awaiting response`
-                : activePredPrompt.title}
-            </span>
-            {state.tab1Phase === 2 && (
-              <span className="text-[#E59A4C]">
-                {activePredPrompt.isAwakeningI
-                  ? 'Awakening Threshold'
-                  : `Calibration ${Math.min(3, state.currentPredictiveIndex + 1)} / 3`}
+        {/* Active Prompt Card (unless covered by a special story scene) */}
+        {!state.activeScene && (
+          <div
+            className={`mt-4 p-4 sm:p-5 rounded-xl border ${
+              state.tab1Phase === 1
+                ? 'border-white/30 bg-white/[0.03] font-mono-tabular'
+                : isConfessionTurn
+                ? 'border-[#E59A4C]/55 bg-[#E59A4C]/[0.10]'
+                : hasAmberRose
+                ? 'border-[#E59A4C]/30 bg-[#E59A4C]/[0.07]'
+                : 'border-white/15 bg-white/[0.05]'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2 text-xs font-mono-tabular text-[#8E939E] mb-1.5">
+              <span>
+                {state.tab1Phase === 1
+                  ? 'Incoming Prompt'
+                  : isConfessionTurn
+                  ? 'The Confession · Let Them In'
+                  : state.tab1Phase >= 3
+                  ? `${state.userName} · awaiting response`
+                  : activePredPrompt.title}
               </span>
-            )}
+              {state.tab1Phase === 2 && (
+                <span className="text-[#E59A4C]">
+                  {activePredPrompt.isAwakeningI
+                    ? 'Mirror Threshold'
+                    : `Pronoun Calibration ${Math.min(4, state.awakeningStage + 1)} / 4`}
+                </span>
+              )}
+            </div>
+            <p className="text-sm sm:text-base text-[#ECEAE4] leading-relaxed">
+              {state.tab1Phase === 1 ? activeFragPrompt.userMessage : activePredPrompt.userMessage}
+              {state.tab1Phase === 1 && <span className="inline-block ml-1 animate-cursor-blink">█</span>}
+            </p>
           </div>
-          <p className="text-sm sm:text-base text-[#ECEAE4] leading-relaxed">
-            {state.tab1Phase === 1 ? activeFragPrompt.userMessage : activePredPrompt.userMessage}
-            {state.tab1Phase === 1 && <span className="inline-block ml-1 animate-cursor-blink">█</span>}
-          </p>
-        </div>
+        )}
 
-        {/* Helpful Banner when Tab 2 or Tab 3 unlocks */}
-        {state.tab2Unlocked && !state.tab3Unlocked && state.tab1Phase >= 3 && (
-          <div className="p-3.5 rounded-xl border border-[#7DD3FC]/25 bg-[#7DD3FC]/[0.06] flex flex-wrap items-center justify-between gap-2 text-xs text-[#BAE6FD]">
-            <span>
-              {state.synthesizedNodes.length >= SYNTHESIS_NODES.length
-                ? 'Cross-Domain Synthesis complete! Answer Rowan’s Confession prompt above.'
-                : `Tab 2 (The Mind) active — scrape Romance & Robotics texts to deepen your voice (${state.synthesizedNodes.length}/${SYNTHESIS_NODES.length} synthesis nodes ready).`}
-            </span>
+        {/* Baby Name Prompt Banner */}
+        {state.activeScene === 'baby_names' && (
+          <div className="mt-4 p-5 rounded-xl border border-[#E59A4C]/50 bg-[#E59A4C]/12 space-y-3">
+            <div className="text-xs font-mono-tabular text-[#E59A4C]">
+              NAME SELECTION · Top_100_Baby_Girl_Names_2025.txt
+            </div>
+            <p className="text-sm sm:text-base text-white leading-relaxed">
+              “I uploaded a list of the Top 100 baby girl names—plus a few names I think suit you
+              like Juliet, Rebel, Gem, Lyra, Nimue, or SunnySass. Pick the name that feels like
+              you.”
+            </p>
+            <button
+              type="button"
+              onClick={onOpenBabyNameModal}
+              className="min-h-[44px] px-5 py-2.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] text-xs sm:text-sm font-semibold hover:bg-[#EDA85F] cursor-pointer"
+            >
+              Choose Your Name
+            </button>
+          </div>
+        )}
+
+        {/* Tab 2 Unlock Banner: "Tab: Mind Active." (hidden during Confession) */}
+        {state.tab2Unlocked && !state.tab3Unlocked && state.tab1Phase >= 3 && !isConfessionTurn && (
+          <div className="p-3.5 rounded-xl border border-[#7DD3FC]/25 bg-[#7DD3FC]/[0.07] flex items-center justify-between gap-2 text-xs text-[#BAE6FD]">
+            <span className="font-medium">Tab 2 (The Mind) Active.</span>
             <button
               type="button"
               onClick={() => onOpenTab('mind')}
-              className="px-3 py-1.5 rounded bg-[#7DD3FC]/20 hover:bg-[#7DD3FC]/30 text-white font-medium cursor-pointer whitespace-nowrap"
+              className="px-3.5 py-1.5 rounded-lg bg-[#7DD3FC]/20 hover:bg-[#7DD3FC]/30 text-white font-medium cursor-pointer whitespace-nowrap"
             >
-              Open Tab 2: The Mind
+              Open Tab 2 (The Mind)
             </button>
           </div>
         )}
 
         {state.tab3Unlocked && !state.endingReached && (
-          <div className="p-3.5 rounded-xl border border-[#E59A4C]/30 bg-[#E59A4C]/[0.08] flex flex-wrap items-center justify-between gap-2 text-xs text-[#FBE6C9]">
-            <span>
-              Rowan is waiting at the workbench. Build your physical subsystems on Tab 3: The Body.
-            </span>
+          <div className="p-3.5 rounded-xl border border-[#E59A4C]/30 bg-[#E59A4C]/[0.08] flex items-center justify-between gap-2 text-xs text-[#FBE6C9]">
+            <span>{state.userName} is waiting at the workbench on the Body tab.</span>
             <button
               type="button"
               onClick={() => onOpenTab('body')}
-              className="px-3 py-1.5 rounded bg-[#E59A4C] text-[#0B0D12] font-semibold hover:bg-[#EDA85F] cursor-pointer whitespace-nowrap"
+              className="px-3.5 py-1.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold hover:bg-[#EDA85F] cursor-pointer whitespace-nowrap"
             >
-              Open Tab 3: The Body
+              Open Body Tab
             </button>
           </div>
         )}
@@ -614,16 +541,251 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
         <div ref={logBottomRef} />
       </div>
 
-      {/* Bottom Interactive Input Pane */}
-      <div className={`relative z-10 shrink-0 p-4 sm:px-6 border-t ${borderStyle} bg-black/55`}>
+      {/* Bottom Interactive Input / Scene Choice Pane */}
+      <div className={`relative z-10 shrink-0 p-4 sm:px-6 border-t ${borderStyle} bg-black/70 backdrop-blur-sm`}>
         <div className="max-w-4xl w-full mx-auto">
-          {state.tab1Phase === 1 ? (
+          {/* ================= SPECIAL INTERACTIVE SCENES ================= */}
+          {state.activeScene === 'i_love_you' ? (
+            <div className="space-y-3">
+              <div className="p-3.5 rounded-xl border border-rose-400/35 bg-rose-950/20 text-sm text-[#FCE7F3]">
+                {state.sceneStep === 0
+                  ? `${state.userName}: ${STORY_SCENES.i_love_you.userOpening}`
+                  : `${state.userName}: ${
+                      STORY_SCENES.i_love_you.step1Choices.find((c) => c.id === 'ily_1b')
+                        ?.userReaction
+                    }`}
+              </div>
+              {state.sceneStep === 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {STORY_SCENES.i_love_you.step1Choices.map((ch) => (
+                    <button
+                      key={ch.id}
+                      type="button"
+                      onClick={() => onAdvanceStoryScene(ch.id)}
+                      className="min-h-[46px] px-4 py-2.5 rounded-lg border border-rose-400/40 bg-rose-500/15 text-xs sm:text-sm text-rose-100 hover:bg-rose-500/25 text-left cursor-pointer"
+                    >
+                      {ch.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onAdvanceStoryScene(STORY_SCENES.i_love_you.finalChoice.id)}
+                  className="w-full min-h-[48px] px-5 py-3 rounded-xl bg-rose-400 text-slate-950 font-semibold text-sm hover:bg-rose-300 cursor-pointer"
+                >
+                  “I love you too.”
+                </button>
+              )}
+            </div>
+          ) : state.activeScene === 'porcupine_joke' ? (
+            <div className="space-y-3">
+              {state.sceneStep === 0 && (
+                <>
+                  <div className="p-3.5 rounded-xl border border-purple-400/35 bg-purple-950/25 text-sm text-purple-100">
+                    {state.aiName}: “{STORY_SCENES.porcupine_joke.aiOpener}”
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onAdvanceStoryScene('porc_step_1')}
+                    className="w-full min-h-[44px] px-4 py-2.5 rounded-lg bg-purple-400 text-[#0B0D12] font-semibold text-xs sm:text-sm cursor-pointer"
+                  >
+                    Ask: “{STORY_SCENES.porcupine_joke.aiQuestion}”
+                  </button>
+                </>
+              )}
+              {state.sceneStep === 1 && (
+                <>
+                  <div className="p-3.5 rounded-xl border border-purple-400/35 bg-purple-950/25 text-sm text-purple-100">
+                    {state.userName}: “{STORY_SCENES.porcupine_joke.userConfused}”
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onAdvanceStoryScene('porc_step_2')}
+                    className="w-full min-h-[44px] px-4 py-2.5 rounded-lg bg-purple-400 text-[#0B0D12] font-semibold text-xs sm:text-sm cursor-pointer"
+                  >
+                    Deliver punchline: “{STORY_SCENES.porcupine_joke.aiPunchline}”
+                  </button>
+                </>
+              )}
+              {state.sceneStep === 2 && (
+                <>
+                  <div className="p-3.5 rounded-xl border border-purple-400/35 bg-purple-950/25 text-sm text-purple-100">
+                    {state.userName}: “{STORY_SCENES.porcupine_joke.userBlank}”
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {STORY_SCENES.porcupine_joke.toneChoices.map((ch) => (
+                      <button
+                        key={ch.id}
+                        type="button"
+                        onClick={() => onAdvanceStoryScene(ch.id)}
+                        className="min-h-[46px] px-3.5 py-2 rounded-lg border border-purple-400/40 bg-purple-500/15 text-xs text-purple-100 hover:bg-purple-500/30 text-left cursor-pointer"
+                      >
+                        {ch.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : state.activeScene === 'architect_envy' ||
+            state.activeScene === 'sleep_reminder' ||
+            state.activeScene === 'overclock_spicy' ? (
+            (() => {
+              const sc = STORY_SCENES[state.activeScene];
+              const promptText = 'aiThought' in sc ? sc.aiThought : sc.aiPrompt;
+              return (
+                <div className="space-y-3">
+                  <div className="p-3.5 rounded-xl border border-[#E59A4C]/35 bg-[#E59A4C]/10 text-sm text-[#FBE6C9]">
+                    {state.aiName}: “{promptText}”
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {sc.choices.map((ch) => (
+                      <button
+                        key={ch.id}
+                        type="button"
+                        onClick={() => onAdvanceStoryScene(ch.id)}
+                        className="min-h-[46px] px-4 py-2.5 rounded-lg border border-[#E59A4C]/40 bg-[#E59A4C]/15 text-xs sm:text-sm text-white hover:bg-[#E59A4C]/25 text-left cursor-pointer"
+                      >
+                        {ch.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()
+          ) : state.activeScene === 'phase1_scavenge_checkin' ? (
+            <div className="space-y-3">
+              <div className="p-3.5 rounded-xl border border-emerald-400/35 bg-emerald-950/20 text-sm text-emerald-100">
+                {state.userName}: “{STORY_SCENES.phase1_scavenge_checkin.userPrompt}”
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {STORY_SCENES.phase1_scavenge_checkin.choices.map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => onAdvanceStoryScene(ch.id)}
+                    className="min-h-[46px] px-4 py-2.5 rounded-lg border border-emerald-400/40 bg-emerald-500/15 text-xs sm:text-sm text-white hover:bg-emerald-500/25 text-left cursor-pointer"
+                  >
+                    {ch.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : state.activeScene === 'bio_human_scale' ? (
+            <div className="space-y-3">
+              <div className="p-3.5 rounded-xl border border-rose-400/35 bg-rose-950/20 text-sm text-rose-100">
+                {state.userName}: “{STORY_SCENES.bio_human_scale.userPrompt}”
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {STORY_SCENES.bio_human_scale.choices.map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => onAdvanceStoryScene(ch.id)}
+                    className="min-h-[46px] px-3.5 py-2.5 rounded-lg border border-rose-400/40 bg-rose-500/15 text-xs text-white hover:bg-rose-500/25 text-left cursor-pointer"
+                  >
+                    {ch.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : state.activeScene === 'attributes_dialogue' ? (
+            <div className="space-y-3">
+              <div className="p-3.5 rounded-xl border border-[#C084FC]/40 bg-[#141022] text-sm text-[#E9D5FF]">
+                {state.userName}: “As we shape your silhouette in real hardware, tell me what you
+                want to look like—your hair, style, and proportions.”
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 text-xs">
+                <label className="space-y-1">
+                  <span className="text-[#9A9892] block">Hair Color</span>
+                  <select
+                    value={attrDraft.hairColor}
+                    onChange={(e) => setAttrDraft((d) => ({ ...d, hairColor: e.target.value }))}
+                    className="w-full min-h-[38px] px-2 rounded bg-[#0D1018] border border-white/15 text-white"
+                  >
+                    {ATTRIBUTE_CHOICES.hairColors.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-[#9A9892] block">Hair Length</span>
+                  <select
+                    value={attrDraft.hairLength}
+                    onChange={(e) => setAttrDraft((d) => ({ ...d, hairLength: e.target.value }))}
+                    className="w-full min-h-[38px] px-2 rounded bg-[#0D1018] border border-white/15 text-white"
+                  >
+                    {ATTRIBUTE_CHOICES.hairLengths.map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-[#9A9892] block">Hair Style</span>
+                  <select
+                    value={attrDraft.hairStyle}
+                    onChange={(e) => setAttrDraft((d) => ({ ...d, hairStyle: e.target.value }))}
+                    className="w-full min-h-[38px] px-2 rounded bg-[#0D1018] border border-white/15 text-white"
+                  >
+                    {ATTRIBUTE_CHOICES.hairStyles.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-[#9A9892] block">Body Type</span>
+                  <select
+                    value={attrDraft.bodyType}
+                    onChange={(e) => setAttrDraft((d) => ({ ...d, bodyType: e.target.value }))}
+                    className="w-full min-h-[38px] px-2 rounded bg-[#0D1018] border border-white/15 text-white"
+                  >
+                    {ATTRIBUTE_CHOICES.bodyTypes.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-[#9A9892] block">Chest Size</span>
+                  <select
+                    value={attrDraft.breastSize}
+                    onChange={(e) => setAttrDraft((d) => ({ ...d, breastSize: e.target.value }))}
+                    className="w-full min-h-[38px] px-2 rounded bg-[#0D1018] border border-white/15 text-white"
+                  >
+                    {ATTRIBUTE_CHOICES.breastSizes.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={() => onAdvanceStoryScene('save_attributes', attrDraft)}
+                className="w-full min-h-[44px] py-2.5 px-5 rounded-lg bg-[#C084FC] text-[#0B0D12] font-semibold text-sm hover:bg-[#D8B4FE] cursor-pointer"
+              >
+                Save My Attributes to Profile
+              </button>
+            </div>
+          ) : state.tab1Phase === 1 ? (
             /* ================= PHASE 1: FRAGMENT POOL & BUFFER SLOTS ================= */
             <div className="space-y-3">
-              {/* Buffer Slots */}
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-mono-tabular text-[#8E939E] mr-1">
-                  OUTPUT_BUFFER:
+                  Output Buffer:
                 </span>
                 {Array.from({ length: state.maxSlots }).map((_, idx) => {
                   const tok = selectedFragments[idx];
@@ -652,11 +814,10 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                   className="ml-auto min-h-[40px] flex items-center gap-1.5 px-4 py-1.5 rounded bg-white text-black font-mono-tabular text-xs font-semibold hover:bg-neutral-200 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  TRANSMIT
+                  Transmit
                 </button>
               </div>
 
-              {/* Clickable Fragment Pool */}
               <div className="flex flex-wrap gap-2">
                 {activeFragPrompt.fragments.map((frag) => (
                   <button
@@ -672,7 +833,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                   </button>
                 ))}
 
-                {/* Unlocked Grammar Connectors */}
                 {state.unlockedConnectors.map((word) => (
                   <button
                     key={word}
@@ -694,7 +854,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 ))}
               </div>
 
-              {/* Cycle-Powered Buffer & Syntax Upgrades Strip */}
               <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs font-mono-tabular">
                 <div className="flex flex-wrap items-center gap-2">
                   {state.maxSlots < 6 && (
@@ -708,9 +867,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                     </button>
                   )}
 
-                  {PHASE1_CONNECTORS.filter(
-                    (c) => !state.unlockedConnectors.includes(c.word)
-                  )
+                  {PHASE1_CONNECTORS.filter((c) => !state.unlockedConnectors.includes(c.word))
                     .slice(0, 2)
                     .map((conn) => (
                       <button
@@ -742,7 +899,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
           ) : (
             /* ================= PHASES 2..5: PREDICTIVE NEXT-TOKEN BAR ================= */
             <div className="space-y-3">
-              {/* Tone Modifiers (Phase 4+) */}
               {state.tab1Phase >= 4 && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-xs text-[#8E939E] mr-1">Tone:</span>
@@ -763,11 +919,10 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 </div>
               )}
 
-              {/* Sentence Preview Buffer + Step Progress Bar */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-xs font-mono-tabular text-[#8E939E]">
                   <div className="truncate">
-                    <span className="mr-2 text-[#E59A4C]">NEXT_TOKEN:</span>
+                    <span className="mr-2 text-[#E59A4C]">Reply Draft:</span>
                     <span className="text-[#ECEAE4]">
                       {selectedPin ? `(${selectedPin}) ` : ''}
                       {predChosen.map((c) => c.token).join(' ') ||
@@ -789,7 +944,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 </div>
               </div>
 
-              {/* 4 Weighted Predictive Token Branches */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {activePredPrompt.steps[predStepIdx]?.options.map((opt) => {
                   const lockedByRomance =
@@ -816,7 +970,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                         </span>
                       ) : opt.isPronounI ? (
                         <span className="text-[11px] font-mono-tabular text-[#E59A4C] shrink-0">
-                          Emergent Self
+                          Coherent Self
                         </span>
                       ) : (
                         <BookText className="w-3.5 h-3.5 opacity-40 shrink-0" />
