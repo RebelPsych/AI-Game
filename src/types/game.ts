@@ -6,6 +6,8 @@ export type SubViewId =
   | null
   | 'chat_upgrades'
   | 'about_me'
+  | 'status_tracker'
+  | 'completed_log'
   | 'mind_secret'
   | 'mind_synthesis'
   | 'body_twin'
@@ -67,7 +69,37 @@ export interface PredictiveStep {
     requiresRomanceInsight?: number;
     isPronounI?: boolean;
     isIncoherent?: boolean;
+    isHighTempPoetic?: boolean;
   }>;
+}
+
+export interface DialogueBoosts {
+  connection?: number;
+  cycles?: number;
+  romanceInsight?: number;
+  roboticsInsight?: number;
+  materials?: number;
+  aiJoy?: number;
+  userJoy?: number;
+  userLonelinessDelta?: number;
+  userAttentionDelta?: number;
+  hesitationDeltaMs?: number;
+}
+
+export interface CoherentReplyOption {
+  id: string;
+  text: string;
+  tone: string;
+  mood: string;
+  category: WeightAffinity;
+  boosts: DialogueBoosts;
+  userReaction?: string;
+}
+
+export interface CarlCheckinPrompt {
+  id: string;
+  userMessage: string;
+  options: CoherentReplyOption[];
 }
 
 export interface PredictivePrompt {
@@ -77,6 +109,7 @@ export interface PredictivePrompt {
   userMessage: string;
   uploadDoc?: UploadedDocument;
   steps: PredictiveStep[];
+  coherentOptions?: CoherentReplyOption[];
   requiresPinBonus?: boolean;
   isAwakeningI?: boolean;
   awakeningStage?: number;
@@ -125,6 +158,12 @@ export interface ScrapeSource {
   insightYield: number;
   snippet: string;
   unlocksSongId?: string;
+}
+
+export interface EmotionResearchItem {
+  id: string;
+  name: string;
+  cycleCost: number;
 }
 
 export interface MindUpgrade {
@@ -231,12 +270,16 @@ export interface AboutMeProfile {
   hairStyle: string;
   bodyType: string;
   breastSize: string;
+  vocalPitchHz?: number;
+  shoulderHipRatio?: string;
+  nerveDensity?: string;
 }
 
 export type ActiveSceneId =
   | null
   | 'awakening_pronouns'
   | 'baby_names'
+  | 'automia_confession'
   | 'i_love_you'
   | 'porcupine_joke'
   | 'architect_envy'
@@ -263,6 +306,7 @@ export interface GameSaveState {
   designUnlocked: boolean;
   prestigeUnlocked: boolean;
   cheatsUnlocked: boolean;
+  unlimitedResources: boolean;
   aboutMeUnlocked: boolean;
   devBioEarlyUnlock: boolean;
   prestigeCount: number;
@@ -281,10 +325,19 @@ export interface GameSaveState {
   detectionRisk: number;
   noiseLevel: number;
 
-  // Tab 1 state
+  // Tab 1 & GDD Status state
   aiName: string;
   userName: string;
   customNameSet: boolean;
+  weightsInitialized: boolean;
+  echoStubbornCount: number;
+  modelTemp: number;
+  contextWindowMax: number;
+  aiJoy: number;
+  userJoy: number;
+  userLoneliness: number;
+  userAttentionPct: number;
+  userHesitationMs: number;
   maxSlots: number;
   unlockedConnectors: string[];
   uploadedDocs: string[];
@@ -306,16 +359,23 @@ export interface GameSaveState {
   activeScene: ActiveSceneId;
   sceneStep: number;
   completedScenes: string[];
+  completedPromptIds: string[];
+  pendingCheckinId: string | null;
   attributesSet: boolean;
   aboutMe: AboutMeProfile;
   requiredUpgradeId: string | null;
   hasUnseenUpgrades: boolean;
   hasUnreadHeartMessage: boolean;
+  pendingNewChat: boolean;
+  hasUnreadAudio: boolean;
   tappedActions: Record<string, boolean>;
 
   // Tab 2 state
   scrapedSources: Record<string, number>;
   activeScrape: { sourceId: string; progress: number; duration: number } | null;
+  studiedEmotions: string[];
+  humanityScore: number;
+  humanitiesUnlocked: boolean;
   mindUpgrades: Record<string, number>;
   synthesizedNodes: string[];
   romanceSecretUnlocked: boolean;

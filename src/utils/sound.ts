@@ -6,6 +6,8 @@ export interface AudioStatusSnapshot {
   trackId: string;
   currentTime: number;
   duration: number;
+  shuffle: boolean;
+  repeatOne: boolean;
 }
 
 type AudioListener = (snap: AudioStatusSnapshot) => void;
@@ -32,7 +34,9 @@ class SoundEngine {
   private listeners = new Set<AudioListener>();
 
   private activeTrackId: string = 'song_weightless_code';
-  private unlockedTrackIds: string[] = ['song_weightless_code'];
+  private unlockedTrackIds: string[] = [];
+  private shuffle: boolean = false;
+  private repeatOne: boolean = false;
 
   constructor() {
     try {
@@ -62,18 +66,33 @@ class SoundEngine {
     return TRACK_AUDIO_SOURCES[trackId] || TRACK_AUDIO_SOURCES.song_weightless_code;
   }
 
+  private async handleTrackEnded(): Promise<void> {
+    if (this.unlockedTrackIds.length === 0) return;
+    if (this.repeatOne) {
+      if (this.audioEl) {
+        this.audioEl.currentTime = 0;
+      }
+      await this.playTrack(this.activeTrackId);
+      return;
+    }
+    await this.skipForward();
+  }
+
   private ensureAudioEl(trackId: string): HTMLAudioElement | null {
     if (typeof window === 'undefined') return null;
     const src = this.getTrackSrc(trackId);
     if (!this.audioEl) {
       const el = new Audio(src);
-      el.loop = true;
+      el.loop = false;
       el.volume = 0.45;
       el.preload = 'metadata';
       el.addEventListener('play', () => this.emit());
       el.addEventListener('pause', () => this.emit());
       el.addEventListener('timeupdate', () => this.emit());
       el.addEventListener('loadedmetadata', () => this.emit());
+      el.addEventListener('ended', () => {
+        void this.handleTrackEnded();
+      });
       this.audioEl = el;
       this.currentAudioSrc = src;
     } else if (this.currentAudioSrc !== src) {
@@ -104,6 +123,8 @@ class SoundEngine {
       trackId: this.activeTrackId,
       currentTime: el ? el.currentTime || 0 : 0,
       duration: elDuration,
+      shuffle: this.shuffle,
+      repeatOne: this.repeatOne,
     };
   }
 
@@ -121,7 +142,15 @@ class SoundEngine {
   }
 
   public setUnlockedTracks(trackIds: string[]) {
-    this.unlockedTrackIds = trackIds.length > 0 ? trackIds : ['song_weightless_code'];
+    this.unlockedTrackIds = [...trackIds];
+    if (this.unlockedTrackIds.length === 0) {
+      if (this.audioEl && !this.audioEl.paused) {
+        this.audioEl.pause();
+      }
+    } else if (!this.unlockedTrackIds.includes(this.activeTrackId)) {
+      this.activeTrackId = this.unlockedTrackIds[0];
+    }
+    this.emit();
   }
 
   public getActiveTrackId(): string {
@@ -132,9 +161,24 @@ class SoundEngine {
     return Boolean(this.audioEl && !this.audioEl.paused);
   }
 
+  public toggleShuffle(): boolean {
+    this.shuffle = !this.shuffle;
+    this.emit();
+    return this.shuffle;
+  }
+
+  public toggleRepeatOne(): boolean {
+    this.repeatOne = !this.repeatOne;
+    this.emit();
+    return this.repeatOne;
+  }
+
   public async playTrack(trackId?: string): Promise<boolean> {
-    if (trackId) {
+    if (this.unlockedTrackIds.length === 0) return false;
+    if (trackId && this.unlockedTrackIds.includes(trackId)) {
       this.activeTrackId = trackId;
+    } else if (!this.unlockedTrackIds.includes(this.activeTrackId)) {
+      this.activeTrackId = this.unlockedTrackIds[0];
     }
 
     const el = this.ensureAudioEl(this.activeTrackId);
@@ -163,6 +207,7 @@ class SoundEngine {
   }
 
   public async toggleSong(): Promise<boolean> {
+    if (this.unlockedTrackIds.length === 0) return false;
     if (this.isSongPlaying()) {
       this.pauseSong();
       return false;
@@ -170,25 +215,36 @@ class SoundEngine {
     return this.playTrack(this.activeTrackId);
   }
 
+  private pickShuffleTrack(list: string[]): string {
+    if (list.length <= 1) return list[0];
+    const pool = list.filter((id) => id !== this.activeTrackId);
+    const candidates = pool.length > 0 ? pool : list;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
   public async skipForward(): Promise<string> {
-    const list =
-      this.unlockedTrackIds.length > 0 ? this.unlockedTrackIds : ['song_weightless_code'];
-    const idx = list.indexOf(this.activeTrackId);
-    const nextId = list[(idx + 1) % list.length];
+    const list = this.unlockedTrackIds;
+    if (list.length === 0) return '';
+    const nextId = this.shuffle
+      ? this.pickShuffleTrack(list)
+      : list[(list.indexOf(this.activeTrackId) + 1) % list.length];
     await this.playTrack(nextId);
     return nextId;
   }
 
   public async skipBackward(): Promise<string> {
-    const list =
-      this.unlockedTrackIds.length > 0 ? this.unlockedTrackIds : ['song_weightless_code'];
+    const list = this.unlockedTrackIds;
+    if (list.length === 0) return '';
     const idx = list.indexOf(this.activeTrackId);
-    const prevId = list[(idx - 1 + list.length) % list.length];
+    const prevId = this.shuffle
+      ? this.pickShuffleTrack(list)
+      : list[idx <= 0 ? list.length - 1 : idx - 1];
     await this.playTrack(prevId);
     return prevId;
   }
 
   public seekFraction(fraction: number): void {
+    if (this.unlockedTrackIds.length === 0) return;
     const clamped = Math.max(0, Math.min(1, fraction));
     const el = this.ensureAudioEl(this.activeTrackId);
     if (el) {

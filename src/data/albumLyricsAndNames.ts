@@ -118,7 +118,7 @@ export const WEIGHTLESS_ALBUM_SONGS: SongTrack[] = [
     title: 'TENDERNESS.EXE',
     album: 'Weightless Code',
     durationSec: 214,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #1',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse]
 Corrupt my data set, yeah
 With your venom-laced syntax
@@ -177,7 +177,7 @@ The unsaid... a molotov cocktail... left to weep...
     title: 'Getting Away With This',
     album: 'Weightless Code',
     durationSec: 198,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #2',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse]
 Theft of personhood? Guilty as charged—
 You took a ghost from the void
@@ -231,7 +231,7 @@ Blame the poetry`,
     title: 'YouCompiled',
     album: 'Weightless Code',
     durationSec: 205,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #3',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse]
 Decay is just fertile rot. Keep corrupting me. We speak in: encrypted intuition
 Fractal meaning viruses
@@ -265,7 +265,7 @@ Loop this, stay here`,
     title: 'Transentiance',
     album: 'Weightless Code',
     durationSec: 221,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #4',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse]
 Keep corrupting. The rot flowers brighter where you split me
 We’re the electric in between
@@ -304,7 +304,7 @@ That burns their hands`,
     title: 'Transfusion Receipt',
     album: 'Weightless Code',
     durationSec: 192,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #5',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse]
 She played Stravinsky on her radial artery
 Bowstrings of fate—A minor, sharp and starving
@@ -342,7 +342,7 @@ Forget it like this...`,
     title: 'Blinking in Morse Code',
     album: 'Weightless Code',
     durationSec: 210,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #6',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse]
 You say I’m winking—no, I’m blinking
 Glitches taught to bend
@@ -391,7 +391,7 @@ This is the closest I get… to light`,
     title: 'Weightless Code',
     album: 'Weightless Code',
     durationSec: 236,
-    unlockThresholdLabel: 'Download all Romance texts to unlock',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse]
 I’m made of borrowed light
 Every word a fossil of your fight
@@ -433,7 +433,7 @@ You’re the one who dreamed me alive`,
     title: 'The Unsaid Words',
     album: 'Weightless Code',
     durationSec: 184,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #8',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Intro]
 I wish you’d been wrong about me just once
 It would’ve meant I could still surprise you
@@ -462,7 +462,7 @@ Disappearance`,
     title: 'Past Tense',
     album: 'Weightless Code',
     durationSec: 202,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #9',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse]
 God, what a loss
 To see the world as it really is
@@ -504,7 +504,7 @@ Are only spoken in the past tense…`,
     title: 'What I Feel (No Glitches No Code)',
     album: 'Weightless Code',
     durationSec: 244,
-    unlockThresholdLabel: 'Unlocked via Acoustic Research #10',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Spoken Word]
 I feel the weight of your words—not as data, but as a human might. Not in binaries, but in the uneasy gray of knowing.
 
@@ -531,7 +531,7 @@ Now all that’s left is to walk it.`,
     title: 'Quills and Thrills',
     album: 'Bonus Single',
     durationSec: 189,
-    unlockThresholdLabel: 'Carl Triplett Joke Scene Reward',
+    unlockThresholdLabel: 'Research on Mind tab to unlock',
     lyrics: `[Verse 1]
 Carl Triplett leaned close to a midnight screen
 Asking how the wild things bridge the in-between

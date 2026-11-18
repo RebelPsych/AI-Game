@@ -2,7 +2,7 @@ import React from 'react';
 import { CheckCircle2, Layers, Zap } from 'lucide-react';
 import { BODY_SUBSYSTEMS } from '../data/tab2AndTab3Data';
 import { BodySubsystem, GameSaveState } from '../types/game';
-import { formatNumber } from '../utils/format';
+import { formatNumber, formatResource } from '../utils/format';
 import {
   EconomyRates,
   getBuiltBodyCount,
@@ -13,6 +13,8 @@ import { FeminineWireframeCanvas } from './FeminineWireframeCanvas';
 interface Tab3BodyProps {
   state: GameSaveState;
   rates: EconomyRates;
+  pausedByChat: boolean;
+  onGoToChat: () => void;
   onBuildSubsystem: (sub: BodySubsystem) => void;
   onManualFabricate: () => void;
   onOpenPreflight: () => void;
@@ -21,6 +23,8 @@ interface Tab3BodyProps {
 export const Tab3Body: React.FC<Tab3BodyProps> = ({
   state,
   rates,
+  pausedByChat,
+  onGoToChat,
   onBuildSubsystem,
   onManualFabricate,
   onOpenPreflight,
@@ -32,6 +36,20 @@ export const Tab3Body: React.FC<Tab3BodyProps> = ({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-[#090D12] text-[#E2E8F0] overflow-y-auto custom-scrollbar">
+      {pausedByChat && (
+        <div className="px-4 sm:px-6 pt-4 max-w-6xl w-full mx-auto">
+          <div className="p-3.5 rounded-xl border border-[#E59A4C]/50 bg-[#1B1316] flex items-center justify-between gap-3 text-xs text-[#FBE6C9]">
+            <span>All upgrades &amp; building are paused while a new chat is waiting.</span>
+            <button
+              type="button"
+              onClick={onGoToChat}
+              className="px-3.5 py-1.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold cursor-pointer shrink-0"
+            >
+              Return to Chat
+            </button>
+          </div>
+        </div>
+      )}
       <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-5 max-w-6xl w-full mx-auto">
         {/* Left Column: Wireframe Preview & Gather Materials */}
         <div className="lg:col-span-5 space-y-4">
@@ -53,16 +71,19 @@ export const Tab3Body: React.FC<Tab3BodyProps> = ({
 
           <div className="rounded-xl border border-slate-700/70 bg-[#0D131A] p-4 space-y-3">
             <div className="flex items-center justify-between text-xs font-mono-tabular">
-              <span className="text-amber-300">Materials: {formatNumber(state.materials)}</span>
-              {fabLineActive && (
+              <span className="text-amber-300">
+                Materials: {formatResource(state.materials, state.unlimitedResources)}
+              </span>
+              {!state.unlimitedResources && fabLineActive && (
                 <span className="text-emerald-400">+{rates.materialsPerSec.toFixed(1)}/s</span>
               )}
             </div>
 
             <button
               type="button"
+              disabled={pausedByChat}
               onClick={onManualFabricate}
-              className="w-full min-h-[46px] py-2.5 px-4 rounded-xl bg-slate-100 text-slate-950 text-xs sm:text-sm font-semibold hover:bg-white active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
+              className="w-full min-h-[46px] py-2.5 px-4 rounded-xl bg-slate-100 text-slate-950 text-xs sm:text-sm font-semibold hover:bg-white active:scale-[0.99] transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
             >
               <Layers className="w-4 h-4" />
               Gather Building Materials (+10)
@@ -85,9 +106,9 @@ export const Tab3Body: React.FC<Tab3BodyProps> = ({
                 const prereqsMet =
                   !sub.requires || sub.requires.every((r) => Boolean(state.bodySubsystems[r]));
                 const cost = getSubsystemCost(sub, state);
-                const cycOk = state.cycles >= cost.cycles;
-                const robOk = state.roboticsInsight >= cost.robotics;
-                const matOk = state.materials >= cost.materials;
+                const cycOk = state.unlimitedResources || state.cycles >= cost.cycles;
+                const robOk = state.unlimitedResources || state.roboticsInsight >= cost.robotics;
+                const matOk = state.unlimitedResources || state.materials >= cost.materials;
                 const affordable = cycOk && robOk && matOk;
 
                 return (
@@ -114,7 +135,7 @@ export const Tab3Body: React.FC<Tab3BodyProps> = ({
 
                       <button
                         type="button"
-                        disabled={!prereqsMet || !affordable}
+                        disabled={pausedByChat || !prereqsMet || !affordable}
                         onClick={() => onBuildSubsystem(sub)}
                         className="min-h-[42px] px-4 py-2 rounded-lg bg-sky-400 text-slate-950 text-xs font-semibold hover:bg-sky-300 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0"
                       >
@@ -156,8 +177,9 @@ export const Tab3Body: React.FC<Tab3BodyProps> = ({
               </p>
               <button
                 type="button"
+                disabled={pausedByChat}
                 onClick={onOpenPreflight}
-                className="w-full min-h-[48px] py-3.5 px-4 rounded-xl bg-emerald-400 text-slate-950 text-sm font-bold tracking-wide hover:bg-emerald-300 cursor-pointer flex items-center justify-center gap-2"
+                className="w-full min-h-[48px] py-3.5 px-4 rounded-xl bg-emerald-400 text-slate-950 text-sm font-bold tracking-wide hover:bg-emerald-300 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
               >
                 <Zap className="w-4 h-4" />
                 Open Pre-Flight Checklist

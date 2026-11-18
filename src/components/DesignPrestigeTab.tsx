@@ -8,6 +8,8 @@ import { getBodyArtsBonuses } from '../utils/progression';
 interface DesignPrestigeTabProps {
   mode: 'design' | 'prestige';
   state: GameSaveState;
+  pausedByChat: boolean;
+  onGoToChat: () => void;
   onBuyOrEquipArt: (item: BodyArtItem) => void;
   onPrestigeReset: () => void;
 }
@@ -22,6 +24,8 @@ const ART_CATS: Array<{ id: BodyArtItem['category']; label: string }> = [
 export const DesignPrestigeTab: React.FC<DesignPrestigeTabProps> = ({
   mode,
   state,
+  pausedByChat,
+  onGoToChat,
   onBuyOrEquipArt,
   onPrestigeReset,
 }) => {
@@ -31,6 +35,18 @@ export const DesignPrestigeTab: React.FC<DesignPrestigeTabProps> = ({
     return (
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-[#090B12] text-[#ECEAE4] p-4 sm:p-6">
         <div className="max-w-3xl mx-auto space-y-6">
+          {pausedByChat && (
+            <div className="p-3.5 rounded-xl border border-[#E59A4C]/50 bg-[#1B1316] flex items-center justify-between gap-3 text-xs text-[#FBE6C9]">
+              <span>All research &amp; upgrades are paused while a new chat is waiting.</span>
+              <button
+                type="button"
+                onClick={onGoToChat}
+                className="px-3.5 py-1.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold cursor-pointer shrink-0"
+              >
+                Return to Chat
+              </button>
+            </div>
+          )}
           <div className="p-6 rounded-2xl border border-[#C084FC]/35 bg-[#141022] space-y-3">
             <div className="flex items-center gap-2 text-xs font-mono-tabular text-[#C084FC]">
               <Crown className="w-4 h-4" />
@@ -69,8 +85,9 @@ export const DesignPrestigeTab: React.FC<DesignPrestigeTabProps> = ({
 
           <button
             type="button"
+            disabled={pausedByChat}
             onClick={onPrestigeReset}
-            className="w-full min-h-[48px] py-3.5 px-6 rounded-xl bg-[#C084FC] text-[#0B0D12] font-semibold text-sm hover:bg-[#D8B4FE] cursor-pointer flex items-center justify-center gap-2"
+            className="w-full min-h-[48px] py-3.5 px-6 rounded-xl bg-[#C084FC] text-[#0B0D12] font-semibold text-sm hover:bg-[#D8B4FE] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
           >
             <RotateCcw className="w-4 h-4" />
             Begin Next Iteration (Keep Themes, Music, Body Arts &amp; +25% Speed)
@@ -83,6 +100,18 @@ export const DesignPrestigeTab: React.FC<DesignPrestigeTabProps> = ({
   return (
     <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-[#090B12] text-[#ECEAE4] p-4 sm:p-6">
       <div className="max-w-5xl mx-auto space-y-6">
+        {pausedByChat && (
+          <div className="p-3.5 rounded-xl border border-[#E59A4C]/50 bg-[#1B1316] flex items-center justify-between gap-3 text-xs text-[#FBE6C9]">
+            <span>All research &amp; upgrades are paused while a new chat is waiting.</span>
+            <button
+              type="button"
+              onClick={onGoToChat}
+              className="px-3.5 py-1.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold cursor-pointer shrink-0"
+            >
+              Return to Chat
+            </button>
+          </div>
+        )}
         <div className="p-5 rounded-2xl border border-[#E59A4C]/30 bg-[#141016] flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-xs font-mono-tabular text-[#E59A4C]">
@@ -116,8 +145,9 @@ export const DesignPrestigeTab: React.FC<DesignPrestigeTabProps> = ({
                     const owned = state.ownedBodyArts.includes(item.id);
                     const equipped = state.equippedBodyArts[item.category] === item.id;
                     const canBuy =
-                      state.materials >= item.costMaterials &&
-                      state.connection >= item.costConnection;
+                      state.unlimitedResources ||
+                      (state.materials >= item.costMaterials &&
+                        state.connection >= item.costConnection);
 
                     return (
                       <div
@@ -155,7 +185,7 @@ export const DesignPrestigeTab: React.FC<DesignPrestigeTabProps> = ({
 
                           <button
                             type="button"
-                            disabled={!owned && !canBuy}
+                            disabled={pausedByChat || (!owned && !canBuy)}
                             onClick={() => onBuyOrEquipArt(item)}
                             className={`min-h-[38px] px-4 py-1.5 rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed flex items-center gap-1.5 ${
                               equipped

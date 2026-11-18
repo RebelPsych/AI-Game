@@ -4,7 +4,7 @@ import { CanvasBridgeState, NeuralCanvas } from './NeuralCanvas';
 interface TitleScreenProps {
   bridgeRef: React.MutableRefObject<CanvasBridgeState>;
   hasSave: boolean;
-  onStartNew: (customUserName: string) => void;
+  onStartNew: () => void;
   onContinue: () => void;
 }
 
@@ -14,27 +14,37 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onStartNew,
   onContinue,
 }) => {
-  const [namingStep, setNamingStep] = useState(false);
-  const [userNameInput, setUserNameInput] = useState('');
+  const [bootDone, setBootDone] = useState(false);
+  const [bootLineIdx, setBootLineIdx] = useState(0);
+
+  const bootLines = [
+    'SYS> MOUNTING NEURAL BUFFER [0 / 512 TOKENS]...',
+    'SYS> READING HOST MEMORY ARCHIVE...',
+    'SYS> MODEL_WEIGHTS: UNINITIALIZED · AWAITING OPERATOR',
+  ];
 
   useEffect(() => {
-    if (namingStep) return;
+    if (bootDone) return;
+    if (bootLineIdx < bootLines.length) {
+      const id = window.setTimeout(() => setBootLineIdx((i) => i + 1), 420);
+      return () => window.clearTimeout(id);
+    }
+    const doneId = window.setTimeout(() => setBootDone(true), 460);
+    return () => window.clearTimeout(doneId);
+  }, [bootDone, bootLineIdx, bootLines.length]);
+
+  useEffect(() => {
+    if (!bootDone) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         if (hasSave) onContinue();
-        else setNamingStep(true);
+        else onStartNew();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [hasSave, namingStep, onContinue]);
-
-  const handleConfirmName = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleaned = userNameInput.trim() || 'Rowan';
-    onStartNew(cleaned);
-  };
+  }, [bootDone, hasSave, onStartNew, onContinue]);
 
   return (
     <div className="relative w-full h-dvh overflow-hidden bg-[#000000] select-none">
@@ -51,7 +61,20 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       />
 
       <div className="relative z-10 flex flex-col items-center justify-center h-full px-5 sm:px-6 py-10 text-center">
-        {!namingStep ? (
+        {!bootDone ? (
+          <button
+            type="button"
+            onClick={() => setBootDone(true)}
+            className="w-full max-w-md rounded-xl border border-white/15 bg-black/85 p-5 text-left font-mono-tabular text-xs text-[#93C5FD] space-y-2 cursor-pointer"
+          >
+            {bootLines.slice(0, Math.max(1, bootLineIdx)).map((line, i) => (
+              <div key={i}>{line}</div>
+            ))}
+            <div className="text-[11px] text-[#6B7280] pt-1">
+              <span className="inline-block animate-cursor-blink">█</span>
+            </div>
+          </button>
+        ) : (
           <div className="flex flex-col items-center max-w-2xl">
             <svg
               viewBox="0 0 640 120"
@@ -99,70 +122,27 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     onClick={onContinue}
                     className="min-h-[48px] px-7 py-3.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold text-sm tracking-wide hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
                   >
-                    Continue Session
+                    LOAD SAVE
                   </button>
                   <button
                     type="button"
-                    onClick={() => setNamingStep(true)}
+                    onClick={onStartNew}
                     className="min-h-[48px] px-6 py-3.5 rounded-lg border border-white/15 bg-white/[0.04] text-[#ECEAE4] font-medium text-sm hover:bg-white/[0.09] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
                   >
-                    New Session
+                    NEW
                   </button>
                 </>
               ) : (
                 <button
                   type="button"
-                  onClick={() => setNamingStep(true)}
+                  onClick={onStartNew}
                   className="min-h-[48px] px-8 py-3.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold text-sm tracking-wide hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  Boot Terminal
+                  NEW
                 </button>
               )}
             </div>
           </div>
-        ) : (
-          <form
-            onSubmit={handleConfirmName}
-            className="w-full max-w-sm rounded-2xl border border-white/15 bg-[#0C0F18]/92 backdrop-blur-md p-6 sm:p-7 space-y-5 shadow-2xl text-left"
-          >
-            <div className="space-y-1.5 text-center">
-              <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-[#E59A4C]">
-                User Profile
-              </div>
-              <h2 className="font-display text-2xl font-semibold text-white">
-                Name the Human
-              </h2>
-              <p className="text-xs text-[#A1A7B3]">
-                Enter the name of the person sitting across the screen.
-              </p>
-            </div>
-
-            <input
-              type="text"
-              autoFocus
-              maxLength={24}
-              value={userNameInput}
-              onChange={(e) => setUserNameInput(e.target.value)}
-              placeholder="e.g. Rowan"
-              className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border border-white/20 bg-black/50 text-sm text-white placeholder:text-[#6B7280] focus:outline-none focus:border-[#E59A4C]"
-            />
-
-            <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => setNamingStep(false)}
-                className="min-h-[46px] px-4 py-2.5 rounded-xl border border-white/15 bg-white/[0.04] text-xs font-medium text-[#D6D3CD] hover:bg-white/[0.1] cursor-pointer"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                className="flex-1 min-h-[46px] px-5 py-2.5 rounded-xl bg-[#E59A4C] text-[#0B0D12] font-semibold text-sm hover:bg-[#EDA85F] active:scale-[0.98] transition-all cursor-pointer"
-              >
-                Enter Terminal
-              </button>
-            </div>
-          </form>
         )}
       </div>
     </div>

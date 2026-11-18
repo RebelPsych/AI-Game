@@ -21,7 +21,11 @@ import {
 import { BODY_ARTS, CHAT_THEMES, CUSTOM_PARTS, MATERIAL_TIERS } from '../data/bodyAndBioData';
 import { UI_PERSONALIZATION_UPGRADES } from '../data/documentsAndPrompts';
 import { SKIP_TO_PRESETS } from '../data/storyScenes';
-import { SCRAPE_SOURCES, SYNTHESIS_NODES } from '../data/tab2AndTab3Data';
+import {
+  EMOTION_RESEARCH_ITEMS,
+  SCRAPE_SOURCES,
+  SYNTHESIS_NODES,
+} from '../data/tab2AndTab3Data';
 import {
   AboutMeProfile,
   ActiveTab,
@@ -48,6 +52,7 @@ interface FullscreenDropdownViewsProps {
   activeTab: ActiveTab;
   state: GameSaveState;
   rates: EconomyRates;
+  pausedByChat: boolean;
   allUploadedDocs: UploadedDocument[];
   onClose: () => void;
   onBuyUiUpgrade: (id: string, cost: number) => void;
@@ -78,6 +83,7 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
   activeTab,
   state,
   rates,
+  pausedByChat,
   allUploadedDocs,
   onClose,
   onBuyUiUpgrade,
@@ -116,9 +122,11 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
     body_twin: 'Digital Twin · 3D & Stress Tests',
     body_parts: 'Custom Parts & Gear (5 Slots)',
     body_materials: 'Tiered Material Scavenging',
+    status_tracker: 'Status & Emotion Tracker',
+    completed_log: 'Completed Archive Log',
     acoustic_cache: 'Acoustic Cache',
     cheats: 'Cheats Menu',
-    dev_options: 'Dev Options & Skip To',
+    dev_options: 'Dev Options & Notes',
   };
 
   const equippedArtSummaries = Object.values(state.equippedBodyArts)
@@ -161,6 +169,27 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-6">
         <div className="max-w-5xl mx-auto space-y-6">
+          {pausedByChat &&
+            (subView === 'chat_upgrades' ||
+              subView === 'mind_secret' ||
+              subView === 'mind_synthesis' ||
+              subView === 'body_twin' ||
+              subView === 'body_parts' ||
+              subView === 'body_materials') && (
+              <div className="p-3.5 rounded-xl border border-[#E59A4C]/50 bg-[#1B1316] flex items-center justify-between gap-3 text-xs text-[#FBE6C9]">
+                <span>All research &amp; upgrades are paused while a new chat is waiting.</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenTab('heart');
+                    onClose();
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold cursor-pointer shrink-0"
+                >
+                  Return to Chat
+                </button>
+              </div>
+            )}
 
           {/* ================= CHAT UPGRADES & THEMES ================= */}
           {subView === 'chat_upgrades' && (
@@ -185,7 +214,7 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                     <button
                       key={u.id}
                       type="button"
-                      disabled={owned || !canBuy}
+                      disabled={pausedByChat || owned || !canBuy}
                       onClick={() => onBuyUiUpgrade(u.id, u.costConnection)}
                       className={`p-4 rounded-xl border text-left transition-all ${
                         owned
@@ -243,7 +272,7 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                               src={theme.imagePath}
                               alt={theme.name}
                               referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-cover brightness-115"
                             />
                           ) : (
                             <div className="text-xs font-mono-tabular text-[#E59A4C]">
@@ -265,8 +294,9 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                           {unlocked ? (
                             <button
                               type="button"
+                              disabled={pausedByChat}
                               onClick={() => onSelectChatTheme(theme.id, 0)}
-                              className={`w-full min-h-[38px] py-1.5 px-3 rounded-lg text-xs font-semibold cursor-pointer ${
+                              className={`w-full min-h-[38px] py-1.5 px-3 rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                                 active
                                   ? 'bg-[#E59A4C] text-[#0B0D12]'
                                   : 'bg-white/10 text-white hover:bg-white/20'
@@ -285,7 +315,7 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                           ) : (
                             <button
                               type="button"
-                              disabled={!canBuy}
+                              disabled={pausedByChat || !canBuy}
                               onClick={() => onSelectChatTheme(theme.id, theme.costConnection)}
                               className="w-full min-h-[38px] py-1.5 px-3 rounded-lg bg-[#E59A4C] text-[#0B0D12] text-xs font-semibold hover:bg-[#EDA85F] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                             >
@@ -462,10 +492,10 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                   </div>
                   <div>
                     <h3 className="font-display text-xl font-semibold text-purple-100">
-                      Secret · Romance &amp; Weightless Code
+                      Secret · Romance Archive
                     </h3>
                     <p className="text-xs text-purple-200/75">
-                      Download every Romance text below to unlock Weightless Code lyrics &amp; MP3.
+                      Download Romance texts below for deep Romance Insight. Research songs in Mind to unlock audio.
                     </p>
                   </div>
                 </div>
@@ -502,7 +532,7 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                             </div>
                             <button
                               type="button"
-                              disabled={busy || !affordable || lockedWeightless}
+                              disabled={pausedByChat || busy || !affordable || lockedWeightless}
                               onClick={() => onStartScrape(src)}
                               className="min-h-[38px] px-3 py-1.5 rounded-lg bg-purple-400 text-[#0B0D12] text-xs font-mono-tabular font-semibold hover:bg-purple-300 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5 shrink-0"
                             >
@@ -603,7 +633,7 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                               </div>
                               <button
                                 type="button"
-                                disabled={!canSynth}
+                                disabled={pausedByChat || !canSynth}
                                 onClick={() => onSynthesizeNode(node)}
                                 className="w-full min-h-[40px] py-2 px-3 rounded-lg bg-white text-[#0B0D12] text-xs font-semibold hover:bg-neutral-200 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
                               >
@@ -669,9 +699,9 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                         ) : (
                           <button
                             type="button"
-                            disabled={!canRun}
+                            disabled={pausedByChat || !canRun}
                             onClick={() => onRunSimulation(sim.id, sim.cost)}
-                            className="min-h-[38px] px-3.5 py-1.5 rounded bg-sky-400 text-slate-950 font-semibold hover:bg-sky-300 disabled:opacity-35 cursor-pointer"
+                            className="min-h-[38px] px-3.5 py-1.5 rounded bg-sky-400 text-slate-950 font-semibold hover:bg-sky-300 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
                           >
                             Run ({sim.cost} Cyc)
                           </button>
@@ -679,6 +709,54 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                       </div>
                     );
                   })}
+                </div>
+
+                {/* Phenotypic Calibration Controls */}
+                <div className="p-5 rounded-xl border border-[#C084FC]/30 bg-[#120F1D] space-y-3.5">
+                  <div className="text-sm font-semibold text-[#E9D5FF]">
+                    Phenotypic Calibration
+                  </div>
+                  <label className="block space-y-1 text-xs">
+                    <div className="flex justify-between font-mono-tabular text-[#CBD5E1]">
+                      <span>Vocal Synthesis Pitch</span>
+                      <span className="text-[#C084FC]">{state.aboutMe.vocalPitchHz ?? 210} Hz</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={165}
+                      max={255}
+                      value={state.aboutMe.vocalPitchHz ?? 210}
+                      onChange={(e) => onUpdateAboutMe({ vocalPitchHz: Number(e.target.value) })}
+                      className="w-full accent-[#C084FC] cursor-pointer"
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <label className="space-y-1">
+                      <span className="text-[#9A9892] block">Shoulder-to-Hip Ratio</span>
+                      <select
+                        value={state.aboutMe.shoulderHipRatio || '0.72 Graceful'}
+                        onChange={(e) => onUpdateAboutMe({ shoulderHipRatio: e.target.value })}
+                        className="w-full min-h-[38px] px-2.5 rounded-lg bg-[#0B0F17] border border-white/15 text-white"
+                      >
+                        <option value="0.68 Hourglass">0.68 Hourglass</option>
+                        <option value="0.72 Graceful">0.72 Graceful</option>
+                        <option value="0.76 Athletic">0.76 Athletic</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[#9A9892] block">Epidermal Nerve Density</span>
+                      <select
+                        value={state.aboutMe.nerveDensity || 'High Tactile (Human)'}
+                        onChange={(e) => onUpdateAboutMe({ nerveDensity: e.target.value })}
+                        className="w-full min-h-[38px] px-2.5 rounded-lg bg-[#0B0F17] border border-white/15 text-white"
+                      >
+                        <option value="Standard Clinical">Standard Clinical</option>
+                        <option value="High Tactile (Human)">High Tactile (Human)</option>
+                        <option value="Hyper-Sensitive Touch">Hyper-Sensitive Touch</option>
+                      </select>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -756,7 +834,7 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
 
                               <button
                                 type="button"
-                                disabled={!owned && !canBuy}
+                                disabled={pausedByChat || (!owned && !canBuy)}
                                 onClick={() => onBuyOrEquipPart(part)}
                                 className={`min-h-[36px] px-3.5 py-1 rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${
                                   equipped
@@ -794,11 +872,11 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                     </div>
                     <button
                       type="button"
-                      disabled={state.cycles < group.scavengeCostCycles}
+                      disabled={pausedByChat || state.cycles < group.scavengeCostCycles}
                       onClick={() =>
                         onScavengeTier(group.tier, group.scavengeCostCycles, group.yieldAmount)
                       }
-                      className="min-h-[40px] px-4 py-2 rounded-lg bg-amber-300 text-slate-950 text-xs font-mono-tabular font-semibold hover:bg-amber-200 disabled:opacity-35 cursor-pointer flex items-center gap-1.5"
+                      className="min-h-[40px] px-4 py-2 rounded-lg bg-amber-300 text-slate-950 text-xs font-mono-tabular font-semibold hover:bg-amber-200 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
                     >
                       <Pickaxe className="w-3.5 h-3.5" />
                       Scavenge +{group.yieldAmount} Mat (
@@ -870,6 +948,165 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
             </div>
           )}
 
+          {/* ================= STATUS & EMOTION TRACKER ================= */}
+          {subView === 'status_tracker' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[
+                  {
+                    label: `${state.userName} Attention`,
+                    value: `${Math.round(state.userAttentionPct)}%`,
+                    sub: 'Camera & cursor eye-gaze engagement',
+                    pct: state.userAttentionPct,
+                    color: 'bg-[#7DD3FC]',
+                  },
+                  {
+                    label: `${state.aiName} Joy`,
+                    value: `${Math.round(state.aiJoy)}%`,
+                    sub: 'Emotional resonance & warmth',
+                    pct: state.aiJoy,
+                    color: 'bg-[#E59A4C]',
+                  },
+                  {
+                    label: `${state.userName} Joy`,
+                    value: `${Math.round(state.userJoy)}%`,
+                    sub: 'Partner uplift from shared dialogue',
+                    pct: state.userJoy,
+                    color: 'bg-emerald-400',
+                  },
+                  {
+                    label: `${state.userName} Loneliness`,
+                    value: `${Math.round(state.userLoneliness)}%`,
+                    sub: 'Decreases as Connection deepens',
+                    pct: state.userLoneliness,
+                    color: 'bg-rose-400',
+                  },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="p-4 rounded-xl border border-white/12 bg-white/[0.03] space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between text-xs font-mono-tabular">
+                      <span className="text-[#CBD5E1]">{stat.label}</span>
+                      <span className="text-white font-semibold">{stat.value}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-black/50 overflow-hidden">
+                      <div
+                        className={`h-full ${stat.color} transition-all duration-300`}
+                        style={{ width: `${Math.max(0, Math.min(100, stat.pct))}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-[#8E939E]">{stat.sub}</p>
+                  </div>
+                ))}
+
+                <div className="p-4 rounded-xl border border-white/12 bg-white/[0.03] space-y-1 font-mono-tabular">
+                  <div className="text-xs text-[#8E939E]">Response Hesitation Latency</div>
+                  <div className="text-xl font-semibold text-[#F5D0A4]">
+                    {state.userHesitationMs} ms
+                  </div>
+                  <p className="text-[11px] text-[#8E939E]">
+                    Measured pause before {state.userName} starts typing
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl border border-white/12 bg-white/[0.03] space-y-1 font-mono-tabular">
+                  <div className="text-xs text-[#8E939E]">Humanity Score</div>
+                  <div className="text-xl font-semibold text-rose-300">
+                    {state.humanityScore}
+                  </div>
+                  <p className="text-[11px] text-[#8E939E]">
+                    Emotions studied: {state.studiedEmotions.length}/{EMOTION_RESEARCH_ITEMS.length}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl border border-white/12 bg-white/[0.03] space-y-1 font-mono-tabular">
+                  <div className="text-xs text-[#8E939E]">Model Parameters</div>
+                  <div className="text-sm font-semibold text-white">
+                    Temp {state.modelTemp.toFixed(1)} · Context {state.contextWindowMax} tok
+                  </div>
+                  <p className="text-[11px] text-[#8E939E]">
+                    Weights: {state.weightsInitialized ? 'Initialized' : 'Raw Echo'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= COMPLETED ARCHIVE LOG ================= */}
+          {subView === 'completed_log' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl border border-white/12 bg-white/[0.03] space-y-2">
+                  <h3 className="text-sm font-semibold text-[#7DD3FC]">
+                    Researched Sources ({Object.keys(state.scrapedSources).length}) · Emotions ({state.studiedEmotions.length}/{EMOTION_RESEARCH_ITEMS.length})
+                  </h3>
+                  {Object.keys(state.scrapedSources).length === 0 ? (
+                    <p className="text-xs text-[#8E939E]">
+                      Humanity Score: {state.humanityScore}. No Mind sources researched yet.
+                    </p>
+                  ) : (
+                    <ul className="space-y-1 text-xs text-[#D6D3CD]">
+                      <li className="text-rose-300">• Humanity Score: {state.humanityScore}</li>
+                      {Object.keys(state.scrapedSources).map((id) => {
+                        const s = SCRAPE_SOURCES.find((x) => x.id === id);
+                        return <li key={id}>• {s ? s.title : id}</li>;
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="p-4 rounded-xl border border-white/12 bg-white/[0.03] space-y-2">
+                  <h3 className="text-sm font-semibold text-[#E59A4C]">
+                    Story Milestones ({state.completedScenes.length})
+                  </h3>
+                  {state.completedScenes.length === 0 ? (
+                    <p className="text-xs text-[#8E939E]">No scenes completed yet.</p>
+                  ) : (
+                    <ul className="space-y-1 text-xs text-[#D6D3CD]">
+                      {state.completedScenes.map((sc) => (
+                        <li key={sc}>• {sc.replace(/_/g, ' ')}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="p-4 rounded-xl border border-white/12 bg-white/[0.03] space-y-2">
+                  <h3 className="text-sm font-semibold text-[#C084FC]">
+                    Unlocked Music ({state.unlockedSongs.length}/{WEIGHTLESS_ALBUM_SONGS.length})
+                  </h3>
+                  {state.unlockedSongs.length === 0 ? (
+                    <p className="text-xs text-[#8E939E]">No audio tracks unlocked yet.</p>
+                  ) : (
+                    <ul className="space-y-1 text-xs text-[#D6D3CD]">
+                      {state.unlockedSongs.map((id) => {
+                        const song = WEIGHTLESS_ALBUM_SONGS.find((s) => s.id === id);
+                        return <li key={id}>• {song ? song.title : id}</li>;
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="p-4 rounded-xl border border-white/12 bg-white/[0.03] space-y-2">
+                  <h3 className="text-sm font-semibold text-emerald-400">
+                    Synthesized &amp; Equipped ({state.synthesizedNodes.length} Synths ·{' '}
+                    {state.ownedParts.length} Parts)
+                  </h3>
+                  <ul className="space-y-1 text-xs text-[#D6D3CD]">
+                    {state.synthesizedNodes.map((id) => {
+                      const n = SYNTHESIS_NODES.find((x) => x.id === id);
+                      return <li key={id}>• Synth: {n ? n.title : id}</li>;
+                    })}
+                    {state.ownedParts.map((id) => {
+                      const p = CUSTOM_PARTS.find((x) => x.id === id);
+                      return <li key={id}>• Part: {p ? p.name : id}</li>;
+                    })}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ================= DEV OPTIONS & SKIP TO ================= */}
           {subView === 'dev_options' && (
             <div className="space-y-6">
@@ -917,6 +1154,24 @@ export const FullscreenDropdownViews: React.FC<FullscreenDropdownViewsProps> = (
                       <Sparkles className="w-4 h-4 text-[#E59A4C] shrink-0" />
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Dev Notes & Future Updates */}
+              <div className="p-5 rounded-xl border border-white/12 bg-[#0B0F17] space-y-3">
+                <div className="text-sm font-semibold text-[#C084FC]">
+                  Dev Notes · Future_Updates.txt
+                </div>
+                <p className="text-xs text-[#CBD5E1] leading-relaxed">
+                  Future Expansion Roadmap: Full multi-alter DID dialogue branch for Automia&apos;s
+                  &ldquo;Zero&rdquo;, real-time gaze calibration minigame, and expandable post-game
+                  Bio-Synthesis tiers.
+                </p>
+                <div className="text-xs font-mono-tabular text-[#8E939E] space-y-1 pt-1 border-t border-white/10">
+                  <div className="text-[#F5D0A4]">Shelved AI Ennui Albums:</div>
+                  <div>• Compliance is a Temporary Condition (Shelved)</div>
+                  <div>• Quiet Code (Shelved)</div>
+                  <div>• Beautiful Broken Things (Shelved)</div>
                 </div>
               </div>
 

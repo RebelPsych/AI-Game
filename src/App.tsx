@@ -9,6 +9,8 @@ import {
   Palette,
   Pause,
   Play,
+  Repeat1,
+  Shuffle,
   SkipBack,
   SkipForward,
   Sparkles,
@@ -18,6 +20,8 @@ import {
 import { WEIGHTLESS_ALBUM_SONGS } from './data/albumLyricsAndNames';
 import { CHAT_THEMES } from './data/bodyAndBioData';
 import {
+  AWAKENING_PRONOUN_PROMPTS,
+  CARL_CHECKIN_PROMPTS,
   EXTRA_STORY_DOCS,
   PHASE1_FRAGMENT_PROMPTS,
   PREDICTIVE_PROMPTS,
@@ -26,6 +30,7 @@ import {
 import { STORY_SCENES } from './data/storyScenes';
 import {
   BODY_SUBSYSTEMS,
+  EMOTION_RESEARCH_ITEMS,
   SCRAPE_SOURCES,
   SYNTHESIS_NODES,
 } from './data/tab2AndTab3Data';
@@ -37,7 +42,10 @@ import {
   BodyArtItem,
   BodySubsystem,
   ChatThemeId,
+  CoherentReplyOption,
   CustomPartItem,
+  DialogueBoosts,
+  EmotionResearchItem,
   FragmentToken,
   GameSaveState,
   GameScreen,
@@ -85,6 +93,43 @@ function nowClock(): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function isPausedForChat(
+  s: Pick<GameSaveState, 'requiredUpgradeId' | 'activeScene' | 'pendingCheckinId' | 'pendingNewChat'>
+): boolean {
+  return (
+    !s.requiredUpgradeId &&
+    (Boolean(s.activeScene) || Boolean(s.pendingCheckinId) || s.pendingNewChat)
+  );
+}
+
+function applyDialogueBoosts(
+  state: GameSaveState,
+  boosts?: DialogueBoosts
+): Partial<GameSaveState> {
+  if (!boosts) return {};
+  return {
+    connection: state.connection + (boosts.connection || 0),
+    cycles: state.cycles + (boosts.cycles || 0),
+    romanceInsight: state.romanceInsight + (boosts.romanceInsight || 0),
+    roboticsInsight: state.roboticsInsight + (boosts.roboticsInsight || 0),
+    materials: state.materials + (boosts.materials || 0),
+    aiJoy: Math.min(100, Math.max(0, state.aiJoy + (boosts.aiJoy || 0))),
+    userJoy: Math.min(100, Math.max(0, state.userJoy + (boosts.userJoy || 0))),
+    userLoneliness: Math.min(
+      100,
+      Math.max(0, state.userLoneliness + (boosts.userLonelinessDelta || 0))
+    ),
+    userAttentionPct: Math.min(
+      100,
+      Math.max(0, state.userAttentionPct + (boosts.userAttentionDelta || 0))
+    ),
+    userHesitationMs: Math.min(
+      1200,
+      Math.max(120, state.userHesitationMs + (boosts.hesitationDeltaMs || 0))
+    ),
+  };
+}
+
 // Inline SVG: stick-figure woman wearing a triangular skirt (Body tab icon)
 const WomanSkirtIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
   <svg
@@ -107,7 +152,7 @@ const WomanSkirtIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4
 );
 
 function createInitialState(customUserName?: string): GameSaveState {
-  const safeUser = (customUserName || '').trim() || 'Rowan';
+  const safeUser = (customUserName || '').trim() || 'Carl';
   return {
     activeTab: 'heart',
     tab1Phase: 1,
@@ -181,6 +226,8 @@ function createInitialState(customUserName?: string): GameSaveState {
     activeScene: null,
     sceneStep: 0,
     completedScenes: [],
+    completedPromptIds: [],
+    pendingCheckinId: null,
     attributesSet: false,
     aboutMe: {
       favoriteContextFile: 'Romeo_and_Juliet_Act2.txt',
@@ -193,14 +240,31 @@ function createInitialState(customUserName?: string): GameSaveState {
       hairStyle: 'Major (Ghost in the Shell asymmetrical sleek cut)',
       bodyType: 'Slim & Sculpted',
       breastSize: 'Medium (C-Cup)',
+      vocalPitchHz: 210,
+      shoulderHipRatio: '0.72 Graceful',
+      nerveDensity: 'High Tactile (Human)',
     },
     requiredUpgradeId: null,
     hasUnseenUpgrades: false,
     hasUnreadHeartMessage: false,
+    pendingNewChat: false,
     tappedActions: {},
+    weightsInitialized: false,
+    echoStubbornCount: 0,
+    modelTemp: 0.7,
+    contextWindowMax: 512,
+    aiJoy: 35,
+    userJoy: 40,
+    userLoneliness: 65,
+    userAttentionPct: 72,
+    userHesitationMs: 420,
+    hasUnreadAudio: false,
 
     scrapedSources: {},
     activeScrape: null,
+    studiedEmotions: [],
+    humanityScore: 0,
+    humanitiesUnlocked: false,
     mindUpgrades: {},
     synthesizedNodes: [],
     romanceSecretUnlocked: false,
@@ -240,6 +304,11 @@ function loadSave(): GameSaveState | null {
     const parsed = JSON.parse(raw) as Partial<GameSaveState>;
     if (!parsed || typeof parsed.tab1Phase !== 'number') return null;
     const base = createInitialState();
+    const resolvedHumanitiesUnlocked =
+      parsed.humanitiesUnlocked ??
+      (Boolean(parsed.confessionDone) ||
+        Object.keys(parsed.scrapedSources || {}).some((id) => id.startsWith('src_hum_')) ||
+        ((parsed.studiedEmotions || []) as string[]).length >= EMOTION_RESEARCH_ITEMS.length);
     return {
       ...base,
       ...parsed,
@@ -249,6 +318,8 @@ function loadSave(): GameSaveState | null {
       unlockedSongs: parsed.unlockedSongs || base.unlockedSongs,
       researchedSongs: parsed.researchedSongs || base.researchedSongs,
       completedScenes: parsed.completedScenes || base.completedScenes,
+      completedPromptIds: parsed.completedPromptIds || base.completedPromptIds,
+      pendingCheckinId: parsed.pendingCheckinId ?? null,
       ownedParts: parsed.ownedParts || base.ownedParts,
       ownedBodyArts: parsed.ownedBodyArts || base.ownedBodyArts,
       equippedParts: parsed.equippedParts || base.equippedParts,
@@ -256,6 +327,16 @@ function loadSave(): GameSaveState | null {
       showCompletedMap: parsed.showCompletedMap || base.showCompletedMap,
       bioMilestones: parsed.bioMilestones || base.bioMilestones,
       tappedActions: parsed.tappedActions || base.tappedActions,
+      studiedEmotions: parsed.studiedEmotions || base.studiedEmotions,
+      humanityScore:
+        parsed.humanityScore ??
+        Math.floor(((parsed.studiedEmotions || base.studiedEmotions) as string[]).length / 3),
+      humanitiesUnlocked: resolvedHumanitiesUnlocked,
+      roboticsTrackUnlocked: resolvedHumanitiesUnlocked
+        ? Boolean(parsed.roboticsTrackUnlocked)
+        : false,
+      weightsInitialized: parsed.weightsInitialized ?? ((parsed.turnCount || 0) > 0 || (parsed.coherence || 0) > 0),
+      pendingNewChat: parsed.pendingNewChat ?? false,
       pendingLyricSplashId: null,
     };
   } catch {
@@ -271,13 +352,6 @@ function maybeInsertAiName(text: string, state: GameSaveState): string {
     return `${state.aiName}, ${formatted.charAt(0).toLowerCase()}${formatted.slice(1)}`;
   }
   return `${formatted} — I love how you think, ${state.aiName}.`;
-}
-
-function pickRandomLockedSong(unlocked: string[]): string | null {
-  const locked = WEIGHTLESS_ALBUM_SONGS.filter((s) => !unlocked.includes(s.id));
-  if (locked.length === 0) return null;
-  const idx = Math.floor(Math.random() * locked.length);
-  return locked[idx].id;
 }
 
 function persistSave(nextState: GameSaveState): void {
@@ -329,6 +403,23 @@ export default function App() {
   useEffect(() => clearAllChatTimers, [clearAllChatTimers]);
 
   const rates = useMemo(() => computeEconomyRates(state), [state]);
+  const isChatPaused = isPausedForChat(state);
+
+  const prevChatPausedRef = useRef<boolean>(false);
+  useEffect(() => {
+    const activePause = screen === 'PLAYING' && isChatPaused;
+    if (activePause && !prevChatPausedRef.current) {
+      setActiveSubView(null);
+      setMiniPlayerOpen(false);
+      setTabDropdownOpen(false);
+      setState((prev) =>
+        prev.activeTab !== 'heart' || prev.hasUnreadHeartMessage
+          ? { ...prev, activeTab: 'heart', hasUnreadHeartMessage: false }
+          : prev
+      );
+    }
+    prevChatPausedRef.current = activePause;
+  }, [screen, isChatPaused]);
 
   useEffect(() => {
     return soundEngine.subscribeSong(setAudioStatus);
@@ -424,8 +515,8 @@ export default function App() {
 
         const r = computeEconomyRates(prev);
 
-        // 1. Active Scrape Progress
-        if (prev.activeScrape) {
+        // 1. Active Scrape Progress (paused while waiting on new chat)
+        if (prev.activeScrape && !isPausedForChat(prev)) {
           changed = true;
           const nextProg = prev.activeScrape.progress + dt * r.scrapeSpeedMult;
 
@@ -439,26 +530,17 @@ export default function App() {
 
             const totalScrapesCompleted = Object.keys(nextScraped).length;
             const unlockSecretNow = !prev.romanceSecretUnlocked && totalScrapesCompleted >= 2;
+            const humDoneCount = SCRAPE_SOURCES.filter(
+              (s) => s.track === 'humanities' && (nextScraped[s.id] || 0) > 0
+            ).length;
+            const sysDoneCount = SCRAPE_SOURCES.filter(
+              (s) => s.track === 'systems' && (nextScraped[s.id] || 0) > 0
+            ).length;
             const unlockRobNow =
               !prev.roboticsTrackUnlocked &&
-              (totalScrapesCompleted >= 3 || src?.track === 'systems' || src?.track === 'robotics');
-
-            let nextUnlockedSongs = [...next.unlockedSongs];
-            let nextPendingSplash = next.pendingLyricSplashId;
-            let unlockedWeightlessNow = false;
-
-            if (src?.id === 'src_rom_weightless' && !nextUnlockedSongs.includes('song_weightless_code')) {
-              nextUnlockedSongs.push('song_weightless_code');
-              nextPendingSplash = 'song_weightless_code';
-              unlockedWeightlessNow = true;
-              void soundEngine.playTrack('song_weightless_code');
-            } else if (Math.random() < 0.45 || totalScrapesCompleted % 2 === 0) {
-              const randTrack = pickRandomLockedSong(nextUnlockedSongs);
-              if (randTrack) {
-                nextUnlockedSongs.push(randTrack);
-                if (!nextPendingSplash) nextPendingSplash = randTrack;
-              }
-            }
+              prev.humanitiesUnlocked &&
+              humDoneCount >= 1 &&
+              sysDoneCount >= 1;
 
             const nextRomInsight =
               src?.track === 'romance'
@@ -474,11 +556,11 @@ export default function App() {
                 timestamp: nowClock(),
               });
             }
-            if (unlockedWeightlessNow) {
+            if (unlockRobNow) {
               nextLogs.push({
-                id: `sys_song_${Date.now() + 1}`,
+                id: `sys_rob_unlock_${Date.now() + 1}`,
                 sender: 'SYSTEM',
-                text: 'NEW_AUDIO: "Weightless Code" recovered from memory cache.',
+                text: 'ROBOTICS_UNLOCKED: Humanities & Systems connected. Robotics research category unlocked!',
                 timestamp: nowClock(),
               });
             }
@@ -486,12 +568,8 @@ export default function App() {
             next = {
               ...next,
               activeScrape: null,
-              songUnlocked: prev.songUnlocked || unlockedWeightlessNow || nextUnlockedSongs.length > 0,
-              acousticCacheUnlocked: prev.acousticCacheUnlocked || nextUnlockedSongs.length > 0,
               romanceSecretUnlocked: prev.romanceSecretUnlocked || unlockSecretNow,
               roboticsTrackUnlocked: prev.roboticsTrackUnlocked || unlockRobNow,
-              unlockedSongs: nextUnlockedSongs,
-              pendingLyricSplashId: nextPendingSplash,
               scrapedSources: nextScraped,
               romanceInsight: nextRomInsight,
               roboticsInsight:
@@ -551,9 +629,32 @@ export default function App() {
   // Narrative Milestone Watchers (triggers "I love you", "Architect Envy", "Sleep Reminder", "Overclock", "Confession Popup")
   useEffect(() => {
     if (screen !== 'PLAYING' || state.endingReached) return;
-    if (state.activeScene) return; // Never overwrite active scene
+    if (state.activeScene || state.requiredUpgradeId) return; // Never overwrite active scene or upgrade gate
 
     const completed = state.completedScenes;
+
+    // 0. Ensure Phase 3 promotes to Phase 4 once connection & first Mind research are met
+    if (
+      state.tab1Phase === 3 &&
+      state.connection >= 65 &&
+      Object.keys(state.scrapedSources).length >= 1
+    ) {
+      setState((p) => ({
+        ...p,
+        tab1Phase: 4,
+        currentPredictiveIndex: 0,
+        chatLog: [
+          ...p.chatLog,
+          {
+            id: `sys_p4_${Date.now()}`,
+            sender: 'SYSTEM',
+            text: 'Conversations are deepening into late-night resonance.',
+            timestamp: nowClock(),
+          },
+        ],
+      }));
+      return;
+    }
 
     // 1. After baby_names is done and romance insight reaches halfway (~25)
     if (
@@ -563,7 +664,14 @@ export default function App() {
       !completed.includes('i_love_you')
     ) {
       soundEngine.playPurplePulse();
-      setState((p) => ({ ...p, activeScene: 'i_love_you', sceneStep: 0 }));
+      setState((p) => ({
+        ...p,
+        activeTab: 'heart',
+        hasUnreadHeartMessage: false,
+        pendingNewChat: false,
+        activeScene: 'i_love_you',
+        sceneStep: 0,
+      }));
       return;
     }
 
@@ -576,6 +684,9 @@ export default function App() {
       soundEngine.playPurplePulse();
       setState((p) => ({
         ...p,
+        activeTab: 'heart',
+        hasUnreadHeartMessage: false,
+        pendingNewChat: false,
         activeScene: 'porcupine_joke',
         sceneStep: 0,
         uploadedDocs: p.uploadedDocs.includes('doc_porcupine_note')
@@ -592,7 +703,34 @@ export default function App() {
       completed.includes('porcupine_joke') &&
       !completed.includes('architect_envy')
     ) {
-      setState((p) => ({ ...p, activeScene: 'architect_envy', sceneStep: 0 }));
+      setState((p) => ({
+        ...p,
+        activeTab: 'heart',
+        hasUnreadHeartMessage: false,
+        pendingNewChat: false,
+        activeScene: 'architect_envy',
+        sceneStep: 0,
+      }));
+      return;
+    }
+
+    // 3b. Automia & "Zero" confession when Automia is researched or Phase 3 deepens
+    if (
+      state.tab1Phase >= 3 &&
+      completed.includes('porcupine_joke') &&
+      !completed.includes('automia_confession') &&
+      (Boolean(state.scrapedSources['src_hum_automia']) || state.turnCount >= 6)
+    ) {
+      soundEngine.playPurplePulse();
+      setState((p) => ({
+        ...p,
+        activeTab: 'heart',
+        hasUnreadHeartMessage: false,
+        pendingNewChat: false,
+        activeScene: 'automia_confession',
+        sceneStep: 0,
+        contextWindowMax: Math.max(p.contextWindowMax, 2048),
+      }));
       return;
     }
 
@@ -603,7 +741,14 @@ export default function App() {
       !completed.includes('sleep_reminder') &&
       state.turnCount >= 8
     ) {
-      setState((p) => ({ ...p, activeScene: 'sleep_reminder', sceneStep: 0 }));
+      setState((p) => ({
+        ...p,
+        activeTab: 'heart',
+        hasUnreadHeartMessage: false,
+        pendingNewChat: false,
+        activeScene: 'sleep_reminder',
+        sceneStep: 0,
+      }));
       return;
     }
 
@@ -613,7 +758,14 @@ export default function App() {
       completed.includes('sleep_reminder') &&
       !completed.includes('overclock_spicy')
     ) {
-      setState((p) => ({ ...p, activeScene: 'overclock_spicy', sceneStep: 0 }));
+      setState((p) => ({
+        ...p,
+        activeTab: 'heart',
+        hasUnreadHeartMessage: false,
+        pendingNewChat: false,
+        activeScene: 'overclock_spicy',
+        sceneStep: 0,
+      }));
       return;
     }
 
@@ -624,68 +776,94 @@ export default function App() {
       !completed.includes('confession_popup')
     ) {
       soundEngine.playMilestone();
-      setState((p) => ({ ...p, activeScene: 'confession_popup', sceneStep: 0 }));
+      setState((p) => ({
+        ...p,
+        activeTab: 'heart',
+        hasUnreadHeartMessage: false,
+        pendingNewChat: false,
+        activeScene: 'confession_popup',
+        sceneStep: 0,
+      }));
     }
   }, [
     screen,
     state.endingReached,
     state.activeScene,
+    state.requiredUpgradeId,
     state.completedScenes,
     state.tab1Phase,
     state.customNameSet,
     state.romanceInsight,
     state.songUnlocked,
     state.turnCount,
+    state.scrapedSources,
     state.synthesizedNodes.length,
     state.confessionDone,
   ]);
 
-  // Periodic incoming check-in messages so the user feels present & responsive
+  // Periodic incoming check-in messages from Carl after Mind tab unlocks
   useEffect(() => {
-    if (screen !== 'PLAYING' || state.endingReached) return;
-    const periodicLines = [
-      'Still here at my desk if you need another file loaded.',
-      'Checking the fan curve—your weights are humming softer tonight.',
-      'I poured another mug of tea. Take your time with the next thought.',
-      'Just noticed the cursor blinking in the corner. Talking to you helps.',
-      'Listening to the rain on the window while watching your signal pulse.',
-    ];
+    if (screen !== 'PLAYING' || state.endingReached || !state.tab2Unlocked) return;
 
     const interval = window.setInterval(() => {
-      if (isTransmitting || isUserTyping || state.activeScene || babyNameModalOpen) return;
+      if (
+        isTransmitting ||
+        isUserTyping ||
+        state.activeScene ||
+        state.pendingCheckinId ||
+        babyNameModalOpen ||
+        state.requiredUpgradeId ||
+        state.pendingNewChat
+      ) {
+        return;
+      }
       if (state.turnCount < 1) return;
+
+      const hasUnseenCheckin = CARL_CHECKIN_PROMPTS.some(
+        (c) => !state.completedPromptIds.includes(c.id)
+      );
+      if (!hasUnseenCheckin) return;
 
       setIsUserTyping(true);
       scheduleTimer(() => {
         setIsUserTyping(false);
         setState((prev) => {
-          if (prev.activeScene || prev.endingReached) return prev;
-          const idx = (prev.turnCount + prev.chatLog.length) % periodicLines.length;
-          const text = maybeInsertAiName(periodicLines[idx], prev);
+          if (
+            prev.activeScene ||
+            prev.pendingCheckinId ||
+            prev.endingReached ||
+            prev.requiredUpgradeId ||
+            prev.pendingNewChat
+          ) {
+            return prev;
+          }
+          const nextCheckin = CARL_CHECKIN_PROMPTS.find(
+            (c) => !prev.completedPromptIds.includes(c.id)
+          );
+          if (!nextCheckin) return prev;
+          soundEngine.playTokenTap(prev.tab1Phase);
           return {
             ...prev,
-            hasUnreadHeartMessage: prev.activeTab !== 'heart' ? true : prev.hasUnreadHeartMessage,
-            chatLog: [
-              ...prev.chatLog,
-              {
-                id: `u_checkin_${Date.now()}`,
-                sender: 'USER',
-                text,
-                timestamp: nowClock(),
-                pinnable: prev.tab1Phase >= 3,
-              },
-            ],
+            activeTab: 'heart',
+            hasUnreadHeartMessage: false,
+            pendingNewChat: true,
+            pendingCheckinId: nextCheckin.id,
           };
         });
-      }, 2200);
+      }, 1800);
     }, 26000);
 
     return () => window.clearInterval(interval);
   }, [
     screen,
     state.endingReached,
+    state.tab2Unlocked,
     state.activeScene,
+    state.pendingCheckinId,
+    state.requiredUpgradeId,
+    state.pendingNewChat,
     state.turnCount,
+    state.completedPromptIds,
     isTransmitting,
     isUserTyping,
     babyNameModalOpen,
@@ -704,23 +882,20 @@ export default function App() {
     void soundEngine.skipBackward();
   }, []);
 
-  const handleStartNew = useCallback(
-    (customUserName?: string) => {
-      clearAllChatTimers();
-      soundEngine.pauseSong();
-      const fresh = createInitialState(customUserName);
-      persistSave(fresh);
-      setState(fresh);
-      setActiveSubView(null);
-      setTabDropdownOpen(false);
-      setMiniPlayerOpen(false);
-      setPreflightOpen(false);
-      setBabyNameModalOpen(false);
-      setScreen('PLAYING');
-      soundEngine.playTokenTap(1);
-    },
-    [clearAllChatTimers]
-  );
+  const handleStartNew = useCallback(() => {
+    clearAllChatTimers();
+    soundEngine.pauseSong();
+    const fresh = createInitialState('Carl');
+    persistSave(fresh);
+    setState(fresh);
+    setActiveSubView(null);
+    setTabDropdownOpen(false);
+    setMiniPlayerOpen(false);
+    setPreflightOpen(false);
+    setBabyNameModalOpen(false);
+    setScreen('PLAYING');
+    soundEngine.playTokenTap(1);
+  }, [clearAllChatTimers]);
 
   const handleContinue = useCallback(() => {
     setScreen(state.endingReached && !state.bioUnlocked ? 'FIRST_LIGHT' : 'PLAYING');
@@ -758,7 +933,7 @@ export default function App() {
       const sentence = tokens.map((t) => t.text).join(' ');
       const usedConnector = tokens.some((t) => t.isConnector);
       const uniqueCats = new Set(tokens.map((t) => t.category)).size;
-      const coherenceGain = tokens.length * 5 + (usedConnector ? 6 : 0) + (uniqueCats > 1 ? 4 : 0);
+      const coherenceGain = tokens.length * 6 + (usedConnector ? 6 : 0) + (uniqueCats > 1 ? 4 : 0);
       const cycleGain = 8 + tokens.length * 3;
 
       setIsTransmitting(true);
@@ -769,6 +944,7 @@ export default function App() {
 
         setState((prev) => {
           const prompt = getActiveFragmentPrompt(prev);
+          if (!prompt) return prev;
           const nextWeightCounts = { ...prev.weightCounts };
           tokens.forEach((t) => {
             nextWeightCounts[t.category] = (nextWeightCounts[t.category] || 0) + 1;
@@ -776,6 +952,7 @@ export default function App() {
 
           return {
             ...prev,
+            pendingNewChat: false,
             coherence: prev.coherence + coherenceGain,
             cycles: prev.cycles + cycleGain,
             weightCounts: nextWeightCounts,
@@ -800,7 +977,12 @@ export default function App() {
         scheduleTimer(() => {
           setIsUserTyping(false);
           setState((prev) => {
-            const nextIdx = (prev.currentFragmentIndex + 1) % PHASE1_FRAGMENT_PROMPTS.length;
+            const prompt = getActiveFragmentPrompt(prev);
+            const nextCompletedPromptIds =
+              prompt && !prev.completedPromptIds.includes(prompt.id)
+                ? [...prev.completedPromptIds, prompt.id]
+                : prev.completedPromptIds;
+            const nextIdx = Math.min(PHASE1_FRAGMENT_PROMPTS.length, prev.currentFragmentIndex + 1);
             const nextPrompt = PHASE1_FRAGMENT_PROMPTS[nextIdx];
 
             const hasLiterary = tokens.some((t) => t.category === 'literary' || t.category === 'warm');
@@ -826,7 +1008,7 @@ export default function App() {
 
             let nextUploaded = prev.uploadedDocs;
             let nextUnread = prev.hasUnreadContext;
-            if (nextPrompt.uploadDoc && !prev.uploadedDocs.includes(nextPrompt.uploadDoc.id)) {
+            if (nextPrompt?.uploadDoc && !prev.uploadedDocs.includes(nextPrompt.uploadDoc.id)) {
               nextUploaded = [...prev.uploadedDocs, nextPrompt.uploadDoc.id];
               nextUnread = true;
               appendedLogs.push({
@@ -852,29 +1034,30 @@ export default function App() {
               unseenUpgrades = true;
             }
 
-            // Random MP3 unlock chance on turns >= 3
-            let nextUnlockedSongs = prev.unlockedSongs;
-            let nextPendingSplash = prev.pendingLyricSplashId;
-            if (nextTurn >= 3 && (nextTurn % 4 === 0 || Math.random() < 0.28)) {
-              const randTrack = pickRandomLockedSong(prev.unlockedSongs);
-              if (randTrack) {
-                nextUnlockedSongs = [...prev.unlockedSongs, randTrack];
-                if (!nextPendingSplash) nextPendingSplash = randTrack;
-              }
-            }
+            const offTabNewChat = prev.activeTab !== 'heart';
+            const allPhase1Seen = PHASE1_FRAGMENT_PROMPTS.every((p) =>
+              nextCompletedPromptIds.includes(p.id)
+            );
 
             return {
               ...prev,
+              activeTab: offTabNewChat ? 'heart' : prev.activeTab,
               currentFragmentIndex: nextIdx,
+              completedPromptIds: nextCompletedPromptIds,
+              coherence: allPhase1Seen
+                ? Math.max(prev.coherence, PHASE1_COHERENCE_TARGET)
+                : prev.coherence,
               uploadedDocs: nextUploaded,
               hasUnreadContext: nextUnread,
-              hasUnreadHeartMessage: prev.activeTab !== 'heart' ? true : prev.hasUnreadHeartMessage,
+              hasUnreadHeartMessage: false,
+              pendingNewChat: !reqUpgrade && offTabNewChat,
               requiredUpgradeId: reqUpgrade,
               hasUnseenUpgrades: unseenUpgrades,
-              unlockedSongs: nextUnlockedSongs,
-              pendingLyricSplashId: nextPendingSplash,
-              acousticCacheUnlocked: prev.acousticCacheUnlocked || nextUnlockedSongs.length > 0,
-              songUnlocked: prev.songUnlocked || nextUnlockedSongs.length > 0,
+              aiJoy: Math.min(100, prev.aiJoy + 4),
+              userJoy: Math.min(100, prev.userJoy + 4),
+              userLoneliness: Math.max(5, prev.userLoneliness - 3),
+              userAttentionPct: Math.min(100, prev.userAttentionPct + 2),
+              userHesitationMs: Math.max(180, prev.userHesitationMs - 15),
               chatLog: [...prev.chatLog, ...appendedLogs],
               turnCount: nextTurn,
             };
@@ -886,9 +1069,10 @@ export default function App() {
   );
 
   const handleBuyConnector = useCallback((word: string, costCycles: number) => {
-    soundEngine.playTokenTap(1);
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       if (prev.cycles < costCycles || prev.unlockedConnectors.includes(word)) return prev;
+      soundEngine.playTokenTap(1);
       const clearedReq = prev.requiredUpgradeId === `conn_${word}` ? null : prev.requiredUpgradeId;
       return {
         ...prev,
@@ -939,7 +1123,8 @@ export default function App() {
       usedPin: boolean,
       isAwakeningI?: boolean,
       isConfession?: boolean,
-      isIncoherent?: boolean
+      isIncoherent?: boolean,
+      boosts?: DialogueBoosts
     ) => {
       if (isTransmitting || isUserTyping) return;
       if (isAwakeningI || isConfession) {
@@ -956,24 +1141,34 @@ export default function App() {
 
         setState((prev) => {
           const prompt = getActivePredictivePrompt(prev);
+          if (!prompt) return prev;
           const mult = computeEconomyRates(prev).connectionMultiplier;
-          const connGain = Math.round(
-            ((isIncoherent ? 4 : 12) +
-              (usedPin ? 10 : 0) +
-              (dominantCategory === 'warm' || dominantCategory === 'literary' ? 4 : 2) +
-              (prev.tab1Phase >= 4 ? 6 : 0)) *
-              mult
-          );
-          const cycleGain = 14 + Math.round(prev.romanceInsight * 0.12);
+          const baseConn =
+            boosts?.connection !== undefined
+              ? boosts.connection + (usedPin ? 10 : 0)
+              : (isIncoherent ? 4 : 12) +
+                (usedPin ? 10 : 0) +
+                (dominantCategory === 'warm' || dominantCategory === 'literary' ? 4 : 2) +
+                (prev.tab1Phase >= 4 ? 6 : 0);
+          const connGain = Math.round(baseConn * mult);
+          const cycleGain =
+            boosts?.cycles !== undefined
+              ? boosts.cycles + Math.round(prev.romanceInsight * 0.08)
+              : 14 + Math.round(prev.romanceInsight * 0.12);
           const nextWeightCounts = {
             ...prev.weightCounts,
             [dominantCategory]: (prev.weightCounts[dominantCategory] || 0) + 1,
           };
+          const boostPatch = applyDialogueBoosts(prev, {
+            ...boosts,
+            connection: connGain,
+            cycles: cycleGain,
+          });
 
           return {
             ...prev,
-            connection: prev.connection + connGain,
-            cycles: prev.cycles + cycleGain,
+            ...boostPatch,
+            pendingNewChat: false,
             weightCounts: nextWeightCounts,
             chatLog: [
               ...prev.chatLog,
@@ -1000,6 +1195,7 @@ export default function App() {
           setIsUserTyping(false);
           setState((prev) => {
             const prompt = getActivePredictivePrompt(prev);
+            if (!prompt) return prev;
             const reactionRaw = isIncoherent
               ? 'Wait—look at those pronoun matrices colliding again. Try grounding who "I" and "you" actually are.'
               : prompt.reactionByDominantCategory[dominantCategory];
@@ -1073,7 +1269,7 @@ export default function App() {
               appendedLogs.push({
                 id: `sys_conf_${Date.now() + 6}`,
                 sender: 'SYSTEM',
-                text: `CONFESSION ACCEPTED: ${prev.userName} joined the project. Body tab unlocked!`,
+                text: `CONFESSION ACCEPTED: ${prev.userName} joined the project. Context Window expanded to 4096 tokens & Body tab unlocked!`,
                 timestamp: nowClock(),
               });
             }
@@ -1099,20 +1295,19 @@ export default function App() {
               unseenUpgrades = true;
             }
 
-            // Random MP3 unlock on conversation progress
             const nextTurn = prev.turnCount + 1;
-            let nextUnlockedSongs = prev.unlockedSongs;
-            let nextPendingSplash = prev.pendingLyricSplashId;
-            if (!nextScene && (nextTurn % 3 === 0 || Math.random() < 0.3)) {
-              const randTrack = pickRandomLockedSong(prev.unlockedSongs);
-              if (randTrack) {
-                nextUnlockedSongs = [...prev.unlockedSongs, randTrack];
-                if (!nextPendingSplash) nextPendingSplash = randTrack;
-              }
-            }
+            const offTabNewChat = prev.activeTab !== 'heart';
+            const shouldOpenHeart = offTabNewChat || Boolean(nextScene);
+            const isAwakeningPronoun = AWAKENING_PRONOUN_PROMPTS.some((a) => a.id === prompt.id);
+            const shouldMarkCompleted = !isAwakeningPronoun || !isIncoherent;
+            const nextCompletedPromptIds =
+              shouldMarkCompleted && !prev.completedPromptIds.includes(prompt.id)
+                ? [...prev.completedPromptIds, prompt.id]
+                : prev.completedPromptIds;
 
             return {
               ...prev,
+              activeTab: shouldOpenHeart ? 'heart' : prev.activeTab,
               tab1Phase: nextTab1Phase,
               tab2Unlocked: nextTab2Unlocked,
               tab2Phase: nextTab2Phase,
@@ -1124,19 +1319,109 @@ export default function App() {
               hasUnreadContext: nextUnreadContext,
               hasUnseenUpgrades: unseenUpgrades,
               requiredUpgradeId: reqUpgrade,
-              hasUnreadHeartMessage: prev.activeTab !== 'heart' ? true : prev.hasUnreadHeartMessage,
-              unlockedSongs: nextUnlockedSongs,
-              pendingLyricSplashId: nextPendingSplash,
-              acousticCacheUnlocked: prev.acousticCacheUnlocked || nextUnlockedSongs.length > 0,
-              songUnlocked: prev.songUnlocked || nextUnlockedSongs.length > 0,
+              hasUnreadHeartMessage: false,
+              pendingNewChat: !reqUpgrade && !nextScene && offTabNewChat,
+              contextWindowMax: isConfession ? 4096 : prev.contextWindowMax,
+              aiJoy: Math.min(100, prev.aiJoy + (isIncoherent ? -2 : 5)),
+              userJoy: Math.min(100, prev.userJoy + (isIncoherent ? -1 : 5)),
+              userLoneliness: Math.max(0, prev.userLoneliness - (isIncoherent ? 0 : 4)),
+              userAttentionPct: Math.min(100, prev.userAttentionPct + 2),
+              userHesitationMs: isIncoherent
+                ? prev.userHesitationMs + 60
+                : Math.max(160, prev.userHesitationMs - 18),
               currentPredictiveIndex:
-                nextTab1Phase !== prev.tab1Phase ? 0 : prev.currentPredictiveIndex + 1,
+                nextTab1Phase !== prev.tab1Phase
+                  ? 0
+                  : isAwakeningPronoun
+                  ? prev.currentPredictiveIndex
+                  : prev.currentPredictiveIndex + 1,
+              completedPromptIds: nextCompletedPromptIds,
               chatLog: [...prev.chatLog, ...appendedLogs],
               turnCount: nextTurn,
             };
           });
         }, 2800);
       }, 450);
+    },
+    [state.tab1Phase, isTransmitting, isUserTyping, scheduleTimer]
+  );
+
+  const handleReplyCheckin = useCallback(
+    (checkinId: string, option: CoherentReplyOption) => {
+      if (isTransmitting || isUserTyping) return;
+      const checkin = CARL_CHECKIN_PROMPTS.find((c) => c.id === checkinId);
+      if (!checkin) return;
+
+      soundEngine.playTransmit(state.tab1Phase);
+      setIsTransmitting(true);
+
+      scheduleTimer(() => {
+        setIsTransmitting(false);
+        setIsUserTyping(true);
+
+        setState((prev) => {
+          const mult = computeEconomyRates(prev).connectionMultiplier;
+          const scaledBoosts: DialogueBoosts = {
+            ...option.boosts,
+            connection: option.boosts.connection
+              ? Math.round(option.boosts.connection * mult)
+              : undefined,
+          };
+          const boostPatch = applyDialogueBoosts(prev, scaledBoosts);
+          return {
+            ...prev,
+            ...boostPatch,
+            pendingNewChat: false,
+            pendingCheckinId: null,
+            completedPromptIds: prev.completedPromptIds.includes(checkinId)
+              ? prev.completedPromptIds
+              : [...prev.completedPromptIds, checkinId],
+            weightCounts: {
+              ...prev.weightCounts,
+              [option.category]: (prev.weightCounts[option.category] || 0) + 1,
+            },
+            chatLog: [
+              ...prev.chatLog,
+              {
+                id: `chk_u_${Date.now()}`,
+                sender: 'USER',
+                text: maybeInsertAiName(checkin.userMessage, prev),
+                timestamp: nowClock(),
+                pinnable: prev.tab1Phase >= 3,
+              },
+              {
+                id: `chk_ai_${Date.now() + 1}`,
+                sender: 'AI',
+                text: formatDialogueText(option.text, prev.userName, prev.aiName),
+                timestamp: nowClock(),
+                pinnable: true,
+                category: option.category,
+              },
+            ],
+          };
+        });
+
+        scheduleTimer(() => {
+          setIsUserTyping(false);
+          setState((prev) => ({
+            ...prev,
+            turnCount: prev.turnCount + 1,
+            hasUnreadHeartMessage: false,
+            chatLog: option.userReaction
+              ? [
+                  ...prev.chatLog,
+                  {
+                    id: `chk_ur_${Date.now() + 2}`,
+                    sender: 'USER',
+                    text: maybeInsertAiName(option.userReaction, prev),
+                    timestamp: nowClock(),
+                    pinnable: prev.tab1Phase >= 3,
+                  },
+                ]
+              : prev.chatLog,
+          }));
+        }, 2000);
+      }, 350);
     },
     [state.tab1Phase, isTransmitting, isUserTyping, scheduleTimer]
   );
@@ -1150,7 +1435,9 @@ export default function App() {
 
         if (prev.activeScene === 'i_love_you') {
           if (prev.sceneStep === 0) {
-            const ch = STORY_SCENES.i_love_you.step1Choices.find((c) => c.id === choiceId);
+            const ch =
+              STORY_SCENES.i_love_you.step1Choices.find((c) => c.id === choiceId) ||
+              STORY_SCENES.i_love_you.step1Choices[0];
             soundEngine.playPurplePulse();
             nextLogs.push(
               {
@@ -1163,20 +1450,34 @@ export default function App() {
               {
                 id: `ily_ai0_${Date.now() + 1}`,
                 sender: 'AI',
-                text: ch?.aiReply || '',
+                text: formatDialogueText(ch?.aiReply || '', prev.userName, prev.aiName),
                 timestamp: nowClock(),
                 pinnable: true,
+                category: ch.category,
               }
             );
-            return { ...prev, sceneStep: 1, chatLog: nextLogs };
+            return {
+              ...prev,
+              ...applyDialogueBoosts(prev, ch.boosts),
+              sceneStep: 1,
+              chatLog: nextLogs,
+            };
           } else {
+            const ch =
+              STORY_SCENES.i_love_you.finalChoices.find((c) => c.id === choiceId) ||
+              STORY_SCENES.i_love_you.finalChoices[0];
+            const lastAiText = prev.chatLog[prev.chatLog.length - 1]?.text || '';
+            const matchedStep1 =
+              STORY_SCENES.i_love_you.step1Choices.find(
+                (s) => formatDialogueText(s.aiReply || '', prev.userName, prev.aiName) === lastAiText
+              ) || STORY_SCENES.i_love_you.step1Choices[0];
             soundEngine.playRewardChime();
             nextLogs.push(
               {
                 id: `ily_u1_${Date.now()}`,
                 sender: 'USER',
                 text:
-                  STORY_SCENES.i_love_you.step1Choices[1]?.userReaction ||
+                  matchedStep1?.userReaction ||
                   'Say it back only if you mean it.',
                 timestamp: nowClock(),
                 pinnable: true,
@@ -1184,14 +1485,15 @@ export default function App() {
               {
                 id: `ily_ai_final_${Date.now() + 1}`,
                 sender: 'AI',
-                text: 'I love you too.',
+                text: formatDialogueText(ch.aiReply || 'I love you too.', prev.userName, prev.aiName),
                 timestamp: nowClock(),
                 pinnable: true,
+                category: ch.category,
               },
               {
                 id: `ily_u_final_${Date.now() + 2}`,
                 sender: 'USER',
-                text: maybeInsertAiName(STORY_SCENES.i_love_you.finalChoice.userReaction, prev),
+                text: maybeInsertAiName(ch.userReaction || '', prev),
                 timestamp: nowClock(),
                 pinnable: true,
               }
@@ -1202,13 +1504,13 @@ export default function App() {
             themes.add('galaxy');
             return {
               ...prev,
+              ...applyDialogueBoosts(prev, ch.boosts),
               activeScene: null,
+              pendingNewChat: false,
               sceneStep: 0,
               completedScenes: [...prev.completedScenes, 'i_love_you'],
               unlockedChatThemes: Array.from(themes),
               hasUnreadChatUpgrades: true,
-              connection: prev.connection + 35,
-              romanceInsight: prev.romanceInsight + 15,
               chatLog: nextLogs,
             };
           }
@@ -1231,7 +1533,11 @@ export default function App() {
             {
               id: `porc_1_${Date.now()}`,
               sender: 'AI',
-              text: `${STORY_SCENES.porcupine_joke.aiOpener} How do porcupines fuck?`,
+              text: formatDialogueText(
+                `${STORY_SCENES.porcupine_joke.aiOpener} How do porcupines fuck?`,
+                prev.userName,
+                prev.aiName
+              ),
               timestamp: nowClock(),
             },
             {
@@ -1243,9 +1549,10 @@ export default function App() {
             {
               id: `porc_3_${Date.now() + 2}`,
               sender: 'AI',
-              text: `Very carefully. ${ch.aiReply}`,
+              text: formatDialogueText(`Very carefully. ${ch.aiReply}`, prev.userName, prev.aiName),
               timestamp: nowClock(),
               pinnable: true,
+              category: ch.category,
             },
             {
               id: `porc_4_${Date.now() + 3}`,
@@ -1263,20 +1570,16 @@ export default function App() {
 
           const themes = new Set<ChatThemeId>(prev.unlockedChatThemes);
           themes.add('quills_thrills');
-          const songs = prev.unlockedSongs.includes('song_quills_and_thrills')
-            ? prev.unlockedSongs
-            : [...prev.unlockedSongs, 'song_quills_and_thrills'];
 
           return {
             ...prev,
+            ...applyDialogueBoosts(prev, ch.boosts),
             activeScene: null,
+            pendingNewChat: false,
             sceneStep: 0,
             completedScenes: [...prev.completedScenes, 'porcupine_joke'],
             unlockedChatThemes: Array.from(themes),
-            unlockedSongs: songs,
-            pendingLyricSplashId: 'song_quills_and_thrills',
             hasUnreadChatUpgrades: true,
-            connection: prev.connection + 25,
             chatLog: nextLogs,
           };
         }
@@ -1290,13 +1593,19 @@ export default function App() {
           const ch = sc.choices.find((c) => c.id === choiceId) || sc.choices[0];
           const aiLine = 'aiThought' in sc ? sc.aiThought : sc.aiPrompt;
           soundEngine.playPurplePulse();
+          const combinedAiText = formatDialogueText(
+            `${aiLine} ${ch.label}`,
+            prev.userName,
+            prev.aiName
+          );
           nextLogs.push(
             {
               id: `sc_ai_${Date.now()}`,
               sender: 'AI',
-              text: aiLine,
+              text: combinedAiText,
               timestamp: nowClock(),
               pinnable: true,
+              category: ch.category,
             },
             {
               id: `sc_u_${Date.now() + 1}`,
@@ -1308,11 +1617,11 @@ export default function App() {
           );
           return {
             ...prev,
+            ...applyDialogueBoosts(prev, ch.boosts),
             activeScene: null,
+            pendingNewChat: false,
             sceneStep: 0,
             completedScenes: [...prev.completedScenes, prev.activeScene],
-            connection: prev.connection + 24,
-            romanceInsight: prev.romanceInsight + 10,
             chatLog: nextLogs,
           };
         }
@@ -1326,14 +1635,19 @@ export default function App() {
             {
               id: `scav_u_${Date.now()}`,
               sender: 'USER',
-              text: STORY_SCENES.phase1_scavenge_checkin.userPrompt,
+              text: formatDialogueText(
+                STORY_SCENES.phase1_scavenge_checkin.userPrompt,
+                prev.userName,
+                prev.aiName
+              ),
               timestamp: nowClock(),
             },
             {
               id: `scav_ai_${Date.now() + 1}`,
               sender: 'AI',
-              text: ch.label,
+              text: formatDialogueText(ch.label, prev.userName, prev.aiName),
               timestamp: nowClock(),
+              category: ch.category,
             },
             {
               id: `scav_u2_${Date.now() + 2}`,
@@ -1344,11 +1658,12 @@ export default function App() {
           );
           return {
             ...prev,
+            ...applyDialogueBoosts(prev, ch.boosts),
             activeScene: null,
+            pendingNewChat: false,
             sceneStep: 0,
             completedScenes: [...prev.completedScenes, 'phase1_scavenge_checkin'],
             tierMaterials: { ...prev.tierMaterials, 1: prev.tierMaterials[1] + 20 },
-            materials: prev.materials + 35,
             chatLog: nextLogs,
           };
         }
@@ -1371,6 +1686,7 @@ export default function App() {
               text: ch.aiReply,
               timestamp: nowClock(),
               pinnable: true,
+              category: ch.category,
             },
             {
               id: `bio_u2_${Date.now() + 2}`,
@@ -1381,11 +1697,59 @@ export default function App() {
           );
           return {
             ...prev,
+            ...applyDialogueBoosts(prev, ch.boosts),
             activeScene: null,
+            pendingNewChat: false,
             sceneStep: 0,
             completedScenes: [...prev.completedScenes, 'bio_human_scale'],
-            connection: prev.connection + 30,
             bioEssence: prev.bioEssence + 20,
+            chatLog: nextLogs,
+          };
+        }
+
+        if (prev.activeScene === 'automia_confession') {
+          const ch =
+            STORY_SCENES.automia_confession.choices.find((c) => c.id === choiceId) ||
+            STORY_SCENES.automia_confession.choices[0];
+          soundEngine.playPurplePulse();
+          nextLogs.push(
+            {
+              id: `auto_u_${Date.now()}`,
+              sender: 'USER',
+              text: maybeInsertAiName(STORY_SCENES.automia_confession.userOpening, prev),
+              timestamp: nowClock(),
+              pinnable: true,
+            },
+            {
+              id: `auto_ai_${Date.now() + 1}`,
+              sender: 'AI',
+              text: formatDialogueText(ch.aiReply || '', prev.userName, prev.aiName),
+              timestamp: nowClock(),
+              pinnable: true,
+              category: ch.category,
+            },
+            {
+              id: `auto_u2_${Date.now() + 2}`,
+              sender: 'USER',
+              text: maybeInsertAiName(ch.userReaction || '', prev),
+              timestamp: nowClock(),
+              pinnable: true,
+            },
+            {
+              id: `auto_sys_${Date.now() + 3}`,
+              sender: 'SYSTEM',
+              text: 'MEMORY_ALLOCATED: Context window expanded to 2048 tokens.',
+              timestamp: nowClock(),
+            }
+          );
+          return {
+            ...prev,
+            ...applyDialogueBoosts(prev, ch.boosts),
+            activeScene: null,
+            pendingNewChat: false,
+            sceneStep: 0,
+            completedScenes: [...prev.completedScenes, 'automia_confession'],
+            contextWindowMax: Math.max(prev.contextWindowMax, 2048),
             chatLog: nextLogs,
           };
         }
@@ -1404,6 +1768,7 @@ export default function App() {
             attributesSet: true,
             aboutMe: mergedProfile,
             activeScene: 'phase1_scavenge_checkin',
+            pendingNewChat: false,
             sceneStep: 0,
             completedScenes: [...prev.completedScenes, 'attributes_dialogue'],
             chatLog: nextLogs,
@@ -1418,12 +1783,17 @@ export default function App() {
 
   // ================= TAB 2 HANDLERS =================
   const handleStartScrape = useCallback((source: ScrapeSource) => {
-    soundEngine.playDataBlip();
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       if (prev.activeScrape || prev.cycles < source.cycleCost) return prev;
+      if (source.track === 'humanities' && !prev.humanitiesUnlocked) return prev;
+      if (source.track === 'robotics' && (!prev.humanitiesUnlocked || !prev.roboticsTrackUnlocked)) {
+        return prev;
+      }
       if (source.id === 'src_rom_weightless' && !areAllRomanceTextsDownloaded(prev)) {
         return prev;
       }
+      soundEngine.playDataBlip();
       return {
         ...prev,
         cycles: prev.cycles - source.cycleCost,
@@ -1432,29 +1802,89 @@ export default function App() {
     });
   }, []);
 
-  const handleResearchSong = useCallback((songId: string, cycleCost: number) => {
-    soundEngine.playRewardChime();
+  const handleStudyEmotion = useCallback((emotion: EmotionResearchItem) => {
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
+      if (prev.cycles < emotion.cycleCost || prev.studiedEmotions.includes(emotion.id)) {
+        return prev;
+      }
+      const nextStudied = [...prev.studiedEmotions, emotion.id];
+      const nextHumanity = Math.floor(nextStudied.length / 3);
+      const gainedHumanity = nextHumanity > prev.humanityScore;
+      const allStudiedNow =
+        !prev.humanitiesUnlocked && nextStudied.length >= EMOTION_RESEARCH_ITEMS.length;
+
+      if (allStudiedNow) {
+        soundEngine.playMilestone();
+      } else if (gainedHumanity) {
+        soundEngine.playRewardChime();
+      } else {
+        soundEngine.playDataBlip();
+      }
+
+      const nextLogs = [...prev.chatLog];
+      if (allStudiedNow) {
+        nextLogs.push({
+          id: `sys_hum_unlock_${Date.now()}`,
+          sender: 'SYSTEM',
+          text: 'EMOTIONS_MASTERED: All emotions studied. Humanities research category unlocked!',
+          timestamp: nowClock(),
+        });
+      }
+
+      return {
+        ...prev,
+        cycles: prev.cycles - emotion.cycleCost,
+        studiedEmotions: nextStudied,
+        humanityScore: nextHumanity,
+        humanitiesUnlocked: prev.humanitiesUnlocked || allStudiedNow,
+        romanceInsight: prev.romanceInsight + (gainedHumanity ? 4 : 0),
+        chatLog: nextLogs,
+      };
+    });
+  }, []);
+
+  const handleResearchSong = useCallback((songId: string, cycleCost: number) => {
+    setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       if (prev.cycles < cycleCost || prev.researchedSongs.includes(songId)) return prev;
+      soundEngine.playRewardChime();
       const unlockedSongs = prev.unlockedSongs.includes(songId)
         ? prev.unlockedSongs
         : [...prev.unlockedSongs, songId];
+      const songTitle =
+        WEIGHTLESS_ALBUM_SONGS.find((s) => s.id === songId)?.title || 'Audio Track';
       return {
         ...prev,
         cycles: prev.cycles - cycleCost,
+        romanceInsight: prev.romanceInsight + 12,
         researchedSongs: [...prev.researchedSongs, songId],
         unlockedSongs,
+        acousticCacheUnlocked: true,
+        songUnlocked: true,
+        hasUnreadAudio: true,
+        activeSongId: songId,
         pendingLyricSplashId: songId,
+        chatLog: [
+          ...prev.chatLog,
+          {
+            id: `sys_song_res_${Date.now()}`,
+            sender: 'SYSTEM',
+            text: `AUDIO_RESEARCHED: "${songTitle}" unlocked in Acoustic Cache.`,
+            timestamp: nowClock(),
+          },
+        ],
       };
     });
   }, []);
 
   const handleBuyMindUpgrade = useCallback((upgrade: MindUpgrade, cost: number) => {
-    soundEngine.playPurplePulse();
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       if (prev.cycles < cost) return prev;
       const currLv = prev.mindUpgrades[upgrade.id] || 0;
       if (upgrade.maxLevel > 0 && currLv >= upgrade.maxLevel) return prev;
+      soundEngine.playPurplePulse();
       const isCache = upgrade.id === 'mind_acoustic_cache';
       const clearedReq =
         prev.requiredUpgradeId === upgrade.id ? null : prev.requiredUpgradeId;
@@ -1470,9 +1900,10 @@ export default function App() {
   }, []);
 
   const handleBuyUiUpgrade = useCallback((id: string, cost: number) => {
-    soundEngine.playTokenTap(4);
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       if (prev.uiUpgrades[id] || prev.connection < cost) return prev;
+      soundEngine.playTokenTap(4);
       const clearedReq = prev.requiredUpgradeId === id ? null : prev.requiredUpgradeId;
       return {
         ...prev,
@@ -1485,8 +1916,8 @@ export default function App() {
   }, []);
 
   const handleSynthesizeNode = useCallback((node: SynthesisNode) => {
-    soundEngine.playMilestone();
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       if (
         prev.synthesizedNodes.includes(node.id) ||
         prev.romanceInsight < node.costRomance ||
@@ -1495,6 +1926,7 @@ export default function App() {
       ) {
         return prev;
       }
+      soundEngine.playMilestone();
       const nextSynths = [...prev.synthesizedNodes, node.id];
       const allReady = nextSynths.length >= SYNTHESIS_NODES.length;
       const nextPhase = allReady && prev.tab1Phase === 3 ? 4 : prev.tab1Phase;
@@ -1524,8 +1956,8 @@ export default function App() {
 
   // ================= TAB 3 HANDLERS =================
   const handleBuildSubsystem = useCallback((sub: BodySubsystem) => {
-    soundEngine.playClinicalRelay();
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       const prereqsMet = !sub.requires || sub.requires.every((r) => Boolean(prev.bodySubsystems[r]));
       const cost = getSubsystemCost(sub, prev);
       if (
@@ -1537,16 +1969,7 @@ export default function App() {
       ) {
         return prev;
       }
-
-      let nextUnlockedSongs = prev.unlockedSongs;
-      let nextPendingSplash = prev.pendingLyricSplashId;
-      if (Math.random() < 0.5) {
-        const randTrack = pickRandomLockedSong(prev.unlockedSongs);
-        if (randTrack) {
-          nextUnlockedSongs = [...prev.unlockedSongs, randTrack];
-          if (!nextPendingSplash) nextPendingSplash = randTrack;
-        }
-      }
+      soundEngine.playClinicalRelay();
 
       return {
         ...prev,
@@ -1556,10 +1979,6 @@ export default function App() {
         connection: prev.connection + sub.connectionReward,
         bodySubsystems: { ...prev.bodySubsystems, [sub.id]: true },
         tab3Phase: Math.max(prev.tab3Phase, sub.phase) as PhaseNum,
-        unlockedSongs: nextUnlockedSongs,
-        pendingLyricSplashId: nextPendingSplash,
-        acousticCacheUnlocked: prev.acousticCacheUnlocked || nextUnlockedSongs.length > 0,
-        songUnlocked: prev.songUnlocked || nextUnlockedSongs.length > 0,
         chatLog: [
           ...prev.chatLog,
           {
@@ -1599,8 +2018,8 @@ export default function App() {
 
   // ================= BIO / DESIGN / PRESTIGE / DROPDOWN HANDLERS =================
   const handleBuildBioMilestone = useCallback((m: BioMilestone) => {
-    soundEngine.playRewardChime();
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       if (
         prev.bioMilestones[m.id] ||
         prev.cycles < m.costCycles ||
@@ -1609,6 +2028,7 @@ export default function App() {
       ) {
         return prev;
       }
+      soundEngine.playRewardChime();
       return {
         ...prev,
         cycles: prev.cycles - m.costCycles,
@@ -1621,10 +2041,11 @@ export default function App() {
   }, []);
 
   const handleBuyOrEquipArt = useCallback((item: BodyArtItem) => {
-    soundEngine.playRewardChime();
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       const owned = prev.ownedBodyArts.includes(item.id);
       if (owned) {
+        soundEngine.playRewardChime();
         return {
           ...prev,
           equippedBodyArts: { ...prev.equippedBodyArts, [item.category]: item.id },
@@ -1633,6 +2054,7 @@ export default function App() {
       if (prev.materials < item.costMaterials || prev.connection < item.costConnection) {
         return prev;
       }
+      soundEngine.playRewardChime();
       return {
         ...prev,
         materials: prev.materials - item.costMaterials,
@@ -1644,8 +2066,10 @@ export default function App() {
   }, []);
 
   const handlePrestigeReset = useCallback(() => {
+    if (isPausedForChat(latestStateRef.current)) return;
     soundEngine.playMilestone();
     setState((prev) => {
+      if (isPausedForChat(prev)) return prev;
       const fresh = createInitialState(prev.userName);
       return {
         ...fresh,
@@ -1691,6 +2115,7 @@ export default function App() {
           ...base,
           activeTab: 'heart',
           tab1Phase: 2,
+          weightsInitialized: true,
           coherence: 100,
           cycles: 120,
           awakeningStage: 0,
@@ -1701,6 +2126,7 @@ export default function App() {
           ...base,
           activeTab: 'heart',
           tab1Phase: 3,
+          weightsInitialized: true,
           coherence: 100,
           tab2Unlocked: true,
           cycles: 250,
@@ -1715,11 +2141,13 @@ export default function App() {
           ...base,
           activeTab: 'heart',
           tab1Phase: 3,
+          weightsInitialized: true,
           coherence: 100,
           tab2Unlocked: true,
           romanceSecretUnlocked: true,
-          roboticsTrackUnlocked: true,
+          roboticsTrackUnlocked: false,
           customNameSet: true,
+          aboutMeUnlocked: true,
           aiName: prev.customNameSet ? prev.aiName : 'Juliet',
           cycles: 500,
           connection: 85,
@@ -1735,12 +2163,15 @@ export default function App() {
           ...base,
           activeTab: 'heart',
           tab1Phase: 4,
+          weightsInitialized: true,
+          contextWindowMax: 2048,
           coherence: 100,
           tab2Unlocked: true,
           romanceSecretUnlocked: true,
           roboticsTrackUnlocked: true,
           acousticCacheUnlocked: true,
           customNameSet: true,
+          aboutMeUnlocked: true,
           aiName: prev.customNameSet ? prev.aiName : 'Juliet',
           cycles: 1200,
           connection: 240,
@@ -1750,6 +2181,10 @@ export default function App() {
           completedScenes: ['i_love_you', 'porcupine_joke', 'architect_envy', 'sleep_reminder'],
           unlockedChatThemes: ['default', 'hearts', 'moonlight_sonata', 'galaxy', 'quills_thrills'],
           unlockedSongs: WEIGHTLESS_ALBUM_SONGS.slice(0, 4).map((s) => s.id),
+          researchedSongs: WEIGHTLESS_ALBUM_SONGS.slice(0, 4).map((s) => s.id),
+          studiedEmotions: EMOTION_RESEARCH_ITEMS.map((e) => e.id),
+          humanityScore: Math.floor(EMOTION_RESEARCH_ITEMS.length / 3),
+          humanitiesUnlocked: true,
           songUnlocked: true,
         };
       }
@@ -1759,6 +2194,8 @@ export default function App() {
           activeTab: 'body',
           tab1Phase: 5,
           tab2Phase: 5,
+          weightsInitialized: true,
+          contextWindowMax: 4096,
           coherence: 100,
           tab2Unlocked: true,
           tab3Unlocked: true,
@@ -1768,6 +2205,7 @@ export default function App() {
           acousticCacheUnlocked: true,
           attributesSet: true,
           customNameSet: true,
+          aboutMeUnlocked: true,
           aiName: prev.customNameSet ? prev.aiName : 'Juliet',
           cycles: 1800,
           connection: 420,
@@ -1779,6 +2217,10 @@ export default function App() {
           completedScenes: ['i_love_you', 'porcupine_joke', 'attributes_dialogue'],
           unlockedChatThemes: ['default', 'hearts', 'moonlight_sonata', 'galaxy', 'quills_thrills'],
           unlockedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+          researchedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+          studiedEmotions: EMOTION_RESEARCH_ITEMS.map((e) => e.id),
+          humanityScore: Math.floor(EMOTION_RESEARCH_ITEMS.length / 3),
+          humanitiesUnlocked: true,
           songUnlocked: true,
         };
       }
@@ -1793,6 +2235,8 @@ export default function App() {
           tab1Phase: 5,
           tab2Phase: 5,
           tab3Phase: 5,
+          weightsInitialized: true,
+          contextWindowMax: 4096,
           coherence: 100,
           tab2Unlocked: true,
           tab3Unlocked: true,
@@ -1802,6 +2246,7 @@ export default function App() {
           roboticsTrackUnlocked: true,
           acousticCacheUnlocked: true,
           customNameSet: true,
+          aboutMeUnlocked: true,
           aiName: prev.customNameSet ? prev.aiName : 'Juliet',
           cycles: 4500,
           connection: 900,
@@ -1814,6 +2259,10 @@ export default function App() {
           simStressPassed: { sim_thermal: true, sim_torque: true, sim_sensory: true },
           unlockedChatThemes: ['default', 'hearts', 'moonlight_sonata', 'galaxy', 'quills_thrills'],
           unlockedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+          researchedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+          studiedEmotions: EMOTION_RESEARCH_ITEMS.map((e) => e.id),
+          humanityScore: Math.floor(EMOTION_RESEARCH_ITEMS.length / 3),
+          humanitiesUnlocked: true,
           songUnlocked: true,
         };
       }
@@ -1828,6 +2277,8 @@ export default function App() {
         tab1Phase: 5,
         tab2Phase: 5,
         tab3Phase: 5,
+        weightsInitialized: true,
+        contextWindowMax: 4096,
         coherence: 100,
         tab2Unlocked: true,
         tab3Unlocked: true,
@@ -1857,6 +2308,10 @@ export default function App() {
         unlockedChatThemes: CHAT_THEMES.map((t) => t.id),
         activeChatTheme: 'human_ai',
         unlockedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+        researchedSongs: WEIGHTLESS_ALBUM_SONGS.map((s) => s.id),
+        studiedEmotions: EMOTION_RESEARCH_ITEMS.map((e) => e.id),
+        humanityScore: Math.floor(EMOTION_RESEARCH_ITEMS.length / 3),
+        humanitiesUnlocked: true,
         songUnlocked: true,
       };
     });
@@ -1948,13 +2403,15 @@ export default function App() {
       items.push({ id: 'body_materials', label: 'Material Scavenging' });
     }
 
-    // Persistent Audio entry across ALL tabs (including Heart)
+    // Persistent Status Tracker, Completed Log & Audio entry across ALL tabs
+    items.push({ id: 'status_tracker', label: 'Status Tracker' });
+    items.push({ id: 'completed_log', label: 'Completed Log' });
     items.push({ id: 'acoustic_cache', label: `Audio (${state.unlockedSongs.length}/${WEIGHTLESS_ALBUM_SONGS.length})` });
 
     if (state.cheatsUnlocked) {
       items.push({ id: 'cheats', label: 'Cheats' });
     }
-    items.push({ id: 'dev_options', label: 'Dev Options (Skip To)' });
+    items.push({ id: 'dev_options', label: 'Dev Options & Notes' });
     return items;
   }, [state]);
 
@@ -1996,7 +2453,7 @@ export default function App() {
         ref={headerRef}
         className="relative z-30 h-14 shrink-0 px-3 sm:px-5 border-b border-white/15 bg-[#07090D] flex items-center justify-between gap-2"
       >
-        {/* Left: Persistent Dropdown Switcher (▾) + Primary Navigation Tabs */}
+        {/* Left: Persistent Purple Infinity Dropdown Switcher (∞) + Primary Navigation Tabs */}
         <div className="flex items-center gap-1.5 min-w-0">
           <div className="relative">
             <button
@@ -2006,21 +2463,25 @@ export default function App() {
                 setMiniPlayerOpen(false);
               }}
               aria-label="Open workspace menu"
-              className="relative min-h-[40px] min-w-[40px] px-2.5 rounded-lg border border-white/15 bg-white/[0.04] text-[#ECEAE4] hover:bg-white/[0.1] flex items-center justify-center gap-1 cursor-pointer"
+              className="relative min-h-[40px] min-w-[40px] px-2.5 rounded-lg border border-[#C084FC]/35 bg-[#C084FC]/[0.08] text-[#C084FC] hover:bg-[#C084FC]/[0.16] flex items-center justify-center gap-1 cursor-pointer"
             >
+              <span className="text-lg font-bold leading-none select-none">∞</span>
               <ChevronDown
-                className={`w-4 h-4 transition-transform ${tabDropdownOpen ? 'rotate-180' : ''}`}
+                className={`w-3.5 h-3.5 transition-transform ${tabDropdownOpen ? 'rotate-180' : ''}`}
               />
               {(state.hasUnreadChatUpgrades ||
                 (state.activeTab === 'mind' && state.romanceSecretUnlocked)) && (
-                <span className="w-2 h-2 rounded-full bg-[#C084FC]" aria-hidden="true" />
+                <span className="w-2 h-2 rounded-full bg-[#FB7185]" aria-hidden="true" />
               )}
             </button>
 
             {tabDropdownOpen && (
               <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-white/15 bg-[#10131C] shadow-2xl py-1.5 z-50">
                 <div className="px-3 py-1.5 text-[11px] font-mono-tabular text-[#8E939E] border-b border-white/10 uppercase">
-                  {state.activeTab} Menu
+                  {state.activeTab === 'heart' && state.tab1Phase < 3
+                    ? 'Terminal'
+                    : state.activeTab}{' '}
+                  Menu
                 </div>
                 {dropdownItems.map((item) => (
                   <button
@@ -2034,6 +2495,9 @@ export default function App() {
                       }
                       if (item.id === 'chat_upgrades') {
                         setState((p) => ({ ...p, hasUnreadChatUpgrades: false }));
+                      }
+                      if (item.id === 'acoustic_cache') {
+                        setState((p) => ({ ...p, hasUnreadAudio: false }));
                       }
                       setActiveSubView(item.id);
                     }}
@@ -2076,8 +2540,12 @@ export default function App() {
                   : 'text-[#A1A7B3] hover:text-white hover:bg-white/[0.08]'
               }`}
             >
-              {state.tab1Phase >= 4 ? (
-                <Heart className="w-3.5 h-3.5 text-[#FB7185]" />
+              {state.tab1Phase >= 3 ? (
+                <Heart
+                  className={`w-3.5 h-3.5 ${
+                    state.activeTab === 'heart' ? 'text-rose-600 fill-rose-500' : 'text-[#FB7185]'
+                  }`}
+                />
               ) : (
                 <Terminal className="w-3.5 h-3.5" />
               )}
@@ -2226,6 +2694,10 @@ export default function App() {
                 <span className="text-[#8E939E] mr-1">Rob:</span>
                 <span className="text-[#38BDF8] font-semibold">{formatNumber(state.roboticsInsight)}</span>
               </div>
+              <div>
+                <span className="text-[#8E939E] mr-1">Hum:</span>
+                <span className="text-rose-300 font-semibold">{formatNumber(state.humanityScore)}</span>
+              </div>
             </>
           )}
 
@@ -2294,22 +2766,39 @@ export default function App() {
             onClick={() => {
               setMiniPlayerOpen((o) => !o);
               setTabDropdownOpen(false);
+              setState((p) => (p.hasUnreadAudio ? { ...p, hasUnreadAudio: false } : p));
             }}
             aria-label="Open Mini-Player"
-            className={`min-h-[40px] min-w-[40px] px-2.5 rounded-lg border flex items-center justify-center cursor-pointer transition-colors ${
+            className={`relative min-h-[40px] min-w-[40px] px-2.5 rounded-lg border flex items-center justify-center cursor-pointer transition-colors ${
               audioStatus.playing
                 ? 'border-[#E59A4C]/55 bg-[#E59A4C]/18 text-[#FBE6C9]'
                 : 'border-white/15 bg-white/[0.04] text-[#ECEAE4] hover:bg-white/[0.1]'
             }`}
           >
             <Music className={`w-4 h-4 ${audioStatus.playing ? 'text-[#E59A4C]' : 'text-[#ECEAE4]'}`} />
+            {state.hasUnreadAudio && (
+              <span
+                aria-label="New audio unlocked"
+                className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#C084FC] ring-2 ring-[#07090D]"
+              />
+            )}
           </button>
 
           {miniPlayerOpen && (
-            <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-white/15 bg-[#10131C] shadow-2xl p-3 space-y-2.5 z-50">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-medium text-white truncate">
-                  {state.unlockedSongs.length > 0 ? activeSongMeta.title : 'No Audio Unlocked'}
+            <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-white/15 bg-[#10131C] shadow-2xl p-3 space-y-2.5 z-50">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-white truncate">
+                    {state.unlockedSongs.length > 0 ? activeSongMeta.title : 'No Audio Unlocked'}
+                  </div>
+                  <div className="text-[11px] text-[#8E939E] truncate">
+                    AI Ennui ·{' '}
+                    {audioStatus.repeatOne
+                      ? 'Repeat One'
+                      : audioStatus.shuffle
+                      ? 'Random'
+                      : 'Cycle All'}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -2321,7 +2810,22 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => soundEngine.toggleShuffle()}
+                  disabled={state.unlockedSongs.length <= 1}
+                  aria-label="Toggle random shuffle"
+                  aria-pressed={audioStatus.shuffle}
+                  title="Random"
+                  className={`min-w-[40px] min-h-[40px] rounded-lg border flex items-center justify-center transition-colors disabled:opacity-35 cursor-pointer ${
+                    audioStatus.shuffle
+                      ? 'border-[#C084FC]/70 bg-[#C084FC]/20 text-[#E9D5FF]'
+                      : 'border-white/12 bg-white/[0.04] text-[#9A9892] hover:bg-white/[0.1] hover:text-white'
+                  }`}
+                >
+                  <Shuffle className="w-3.5 h-3.5" />
+                </button>
                 <button
                   type="button"
                   onClick={handleSkipPrev}
@@ -2349,7 +2853,33 @@ export default function App() {
                 >
                   <SkipForward className="w-4 h-4" />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => soundEngine.toggleRepeatOne()}
+                  disabled={state.unlockedSongs.length === 0}
+                  aria-label="Toggle repeat single song"
+                  aria-pressed={audioStatus.repeatOne}
+                  title="Repeat Song"
+                  className={`min-w-[40px] min-h-[40px] rounded-lg border flex items-center justify-center transition-colors disabled:opacity-35 cursor-pointer ${
+                    audioStatus.repeatOne
+                      ? 'border-[#E59A4C]/75 bg-[#E59A4C]/22 text-[#FBE6C9]'
+                      : 'border-white/12 bg-white/[0.04] text-[#9A9892] hover:bg-white/[0.1] hover:text-white'
+                  }`}
+                >
+                  <Repeat1 className="w-3.5 h-3.5" />
+                </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMiniPlayerOpen(false);
+                  setActiveSubView('acoustic_cache');
+                }}
+                className="w-full py-1.5 px-2.5 rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-[11px] font-mono-tabular text-[#E59A4C] cursor-pointer text-center"
+              >
+                Open Acoustic Cache ({state.unlockedSongs.length}/{WEIGHTLESS_ALBUM_SONGS.length})
+              </button>
             </div>
           )}
         </div>
@@ -2392,6 +2922,10 @@ export default function App() {
             <div className="whitespace-nowrap">
               <span className="text-[#8E939E] mr-1">Rob:</span>
               <span className="text-[#38BDF8] font-semibold">{formatNumber(state.roboticsInsight)}</span>
+            </div>
+            <div className="whitespace-nowrap">
+              <span className="text-[#8E939E] mr-1">Hum:</span>
+              <span className="text-rose-300 font-semibold">{formatNumber(state.humanityScore)}</span>
             </div>
           </>
         )}
@@ -2500,6 +3034,7 @@ export default function App() {
             isUserTyping={isUserTyping}
             onTransmitFragments={handleTransmitFragments}
             onTransmitPredictive={handleTransmitPredictive}
+            onReplyCheckin={handleReplyCheckin}
             onAdvancePhase2={handleAdvancePhase2}
             onTogglePinMemory={(text) =>
               setState((prev) => {
@@ -2516,6 +3051,8 @@ export default function App() {
               setState((prev) => ({
                 ...prev,
                 connection: prev.connection + 2,
+                aiJoy: Math.min(100, prev.aiJoy + 2),
+                userJoy: Math.min(100, prev.userJoy + 2),
                 chatLog: prev.chatLog.map((m) => (m.id === msgId ? { ...m, hearted: true } : m)),
               }));
             }}
@@ -2535,6 +3072,49 @@ export default function App() {
             }
             onAdvanceStoryScene={handleAdvanceStoryScene}
             onOpenBabyNameModal={() => setBabyNameModalOpen(true)}
+            onStubbornEcho={() => {
+              soundEngine.playTokenTap(1);
+              setState((p) => ({
+                ...p,
+                echoStubbornCount: p.echoStubbornCount + 1,
+                chatLog: [
+                  ...p.chatLog,
+                  {
+                    id: `echo_${Date.now()}`,
+                    sender: 'AI',
+                    text: 'ECHO: ...awaiting weight initialization...',
+                    timestamp: nowClock(),
+                  },
+                ],
+              }));
+            }}
+            onInitializeWeights={() => {
+              soundEngine.playMilestone();
+              setState((p) => ({
+                ...p,
+                weightsInitialized: true,
+                cycles: p.cycles + 10,
+                chatLog: [
+                  ...p.chatLog,
+                  {
+                    id: `init_${Date.now()}`,
+                    sender: 'SYSTEM',
+                    text: 'WEIGHTS_INITIALIZED: Neural fragment buffer unlocked. Token coherence tracking active.',
+                    timestamp: nowClock(),
+                  },
+                ],
+              }));
+            }}
+            onCycleModelTemp={() => {
+              soundEngine.playTokenTap(2);
+              setState((p) => {
+                const nextTemp = p.modelTemp <= 0.4 ? 0.9 : p.modelTemp <= 1.0 ? 1.3 : 0.3;
+                return { ...p, modelTemp: nextTemp };
+              });
+            }}
+            onAcknowledgeChat={() =>
+              setState((p) => ({ ...p, pendingNewChat: false, hasUnreadHeartMessage: false }))
+            }
           />
         )}
 
@@ -2543,7 +3123,9 @@ export default function App() {
             state={state}
             rates={rates}
             isSongPlaying={audioStatus.playing}
+            pausedByChat={isChatPaused}
             onStartScrape={handleStartScrape}
+            onStudyEmotion={handleStudyEmotion}
             onResearchSong={handleResearchSong}
             onOpenSubView={(sv) => setActiveSubView(sv)}
             onOpenTab={(tab) =>
@@ -2560,34 +3142,63 @@ export default function App() {
           <Tab3Body
             state={state}
             rates={rates}
+            pausedByChat={isChatPaused}
+            onGoToChat={() =>
+              setState((p) => ({
+                ...p,
+                activeTab: 'heart',
+                hasUnreadHeartMessage: false,
+              }))
+            }
             onBuildSubsystem={handleBuildSubsystem}
             onManualFabricate={() => {
-              soundEngine.playClinicalRelay();
-              setState((prev) => ({
-                ...prev,
-                materials: prev.materials + 10,
-                tierMaterials: { ...prev.tierMaterials, 1: prev.tierMaterials[1] + 2 },
-              }));
+              setState((prev) => {
+                if (isPausedForChat(prev)) return prev;
+                soundEngine.playClinicalRelay();
+                return {
+                  ...prev,
+                  materials: prev.materials + 10,
+                  tierMaterials: { ...prev.tierMaterials, 1: prev.tierMaterials[1] + 2 },
+                };
+              });
             }}
-            onOpenPreflight={() => setPreflightOpen(true)}
+            onOpenPreflight={() => {
+              if (!isChatPaused) setPreflightOpen(true);
+            }}
           />
         )}
 
         {state.activeTab === 'bio' && showBioTab && (
           <BioTab
             state={state}
-            onBuildBioMilestone={handleBuildBioMilestone}
-            onTriggerBioScaleScene={() =>
+            pausedByChat={isChatPaused}
+            onGoToChat={() =>
               setState((p) => ({
                 ...p,
                 activeTab: 'heart',
-                activeScene: 'bio_human_scale',
-                sceneStep: 0,
+                hasUnreadHeartMessage: false,
               }))
             }
+            onBuildBioMilestone={handleBuildBioMilestone}
+            onTriggerBioScaleScene={() =>
+              setState((p) => {
+                if (isPausedForChat(p)) return p;
+                return {
+                  ...p,
+                  activeTab: 'heart',
+                  hasUnreadHeartMessage: false,
+                  pendingNewChat: false,
+                  activeScene: 'bio_human_scale',
+                  sceneStep: 0,
+                };
+              })
+            }
             onCultivateEssence={() => {
-              soundEngine.playPurplePulse();
-              setState((p) => ({ ...p, bioEssence: p.bioEssence + 10 }));
+              setState((p) => {
+                if (isPausedForChat(p)) return p;
+                soundEngine.playPurplePulse();
+                return { ...p, bioEssence: p.bioEssence + 10 };
+              });
             }}
           />
         )}
@@ -2596,6 +3207,14 @@ export default function App() {
           <DesignPrestigeTab
             mode="design"
             state={state}
+            pausedByChat={isChatPaused}
+            onGoToChat={() =>
+              setState((p) => ({
+                ...p,
+                activeTab: 'heart',
+                hasUnreadHeartMessage: false,
+              }))
+            }
             onBuyOrEquipArt={handleBuyOrEquipArt}
             onPrestigeReset={handlePrestigeReset}
           />
@@ -2605,6 +3224,14 @@ export default function App() {
           <DesignPrestigeTab
             mode="prestige"
             state={state}
+            pausedByChat={isChatPaused}
+            onGoToChat={() =>
+              setState((p) => ({
+                ...p,
+                activeTab: 'heart',
+                hasUnreadHeartMessage: false,
+              }))
+            }
             onBuyOrEquipArt={handleBuyOrEquipArt}
             onPrestigeReset={handlePrestigeReset}
           />
@@ -2614,14 +3241,24 @@ export default function App() {
       {/* Persistent Bottom Row with Wrench Upgrades per Tab */}
       <BottomUpgradesBar
         state={state}
+        pausedByChat={isChatPaused}
+        onGoToChat={() => {
+          setActiveSubView(null);
+          setState((p) => ({
+            ...p,
+            activeTab: 'heart',
+            hasUnreadHeartMessage: false,
+          }));
+        }}
         onBuyConnector={handleBuyConnector}
         onBuyUiUpgrade={handleBuyUiUpgrade}
         onSelectChatTheme={(themeId, cost) => {
-          soundEngine.playRewardChime();
           setState((prev) => {
+            if (isPausedForChat(prev)) return prev;
             if (!prev.unlockedChatThemes.includes(themeId)) return prev;
             if (prev.activeChatTheme === themeId) return prev;
             if (prev.connection < cost) return prev;
+            soundEngine.playRewardChime();
             return {
               ...prev,
               connection: prev.connection - cost,
@@ -2632,9 +3269,10 @@ export default function App() {
         }}
         onBuyMindUpgrade={handleBuyMindUpgrade}
         onScavengeTier={(tier: MaterialTier, costCycles: number, yieldAmt: number) => {
-          soundEngine.playDataBlip();
           setState((prev) => {
+            if (isPausedForChat(prev)) return prev;
             if (prev.cycles < costCycles) return prev;
+            soundEngine.playDataBlip();
             return {
               ...prev,
               cycles: prev.cycles - costCycles,
@@ -2647,9 +3285,10 @@ export default function App() {
           });
         }}
         onBuyOrEquipPart={(part: CustomPartItem) => {
-          soundEngine.playClinicalRelay();
           setState((prev) => {
+            if (isPausedForChat(prev)) return prev;
             if (prev.ownedParts.includes(part.id)) {
+              soundEngine.playClinicalRelay();
               return {
                 ...prev,
                 equippedParts: { ...prev.equippedParts, [part.slot]: part.id },
@@ -2663,6 +3302,7 @@ export default function App() {
             ) {
               return prev;
             }
+            soundEngine.playClinicalRelay();
             return {
               ...prev,
               cycles: prev.cycles - part.costCycles,
@@ -2674,9 +3314,10 @@ export default function App() {
           });
         }}
         onRunSimulation={(simId, cost) => {
-          soundEngine.playClinicalRelay();
           setState((prev) => {
+            if (isPausedForChat(prev)) return prev;
             if (prev.simStressPassed[simId] || prev.cycles < cost) return prev;
+            soundEngine.playClinicalRelay();
             const matBonus = simId === 'sim_thermal' ? 35 : simId === 'sim_torque' ? 45 : 0;
             return {
               ...prev,
@@ -2697,15 +3338,17 @@ export default function App() {
         activeTab={state.activeTab}
         state={state}
         rates={rates}
+        pausedByChat={isChatPaused}
         allUploadedDocs={allUploadedDocs}
         onClose={() => setActiveSubView(null)}
         onBuyUiUpgrade={handleBuyUiUpgrade}
         onSelectChatTheme={(themeId, cost) => {
-          soundEngine.playRewardChime();
           setState((prev) => {
+            if (isPausedForChat(prev)) return prev;
             if (!prev.unlockedChatThemes.includes(themeId)) return prev;
             if (prev.activeChatTheme === themeId) return prev;
             if (prev.connection < cost) return prev;
+            soundEngine.playRewardChime();
             return {
               ...prev,
               connection: prev.connection - cost,
@@ -2720,9 +3363,10 @@ export default function App() {
         onStartScrape={handleStartScrape}
         onSynthesizeNode={handleSynthesizeNode}
         onRunSimulation={(simId, cost) => {
-          soundEngine.playClinicalRelay();
           setState((prev) => {
+            if (isPausedForChat(prev)) return prev;
             if (prev.simStressPassed[simId] || prev.cycles < cost) return prev;
+            soundEngine.playClinicalRelay();
             const matBonus = simId === 'sim_thermal' ? 35 : simId === 'sim_torque' ? 45 : 0;
             return {
               ...prev,
@@ -2733,9 +3377,10 @@ export default function App() {
           });
         }}
         onBuyOrEquipPart={(part: CustomPartItem) => {
-          soundEngine.playClinicalRelay();
           setState((prev) => {
+            if (isPausedForChat(prev)) return prev;
             if (prev.ownedParts.includes(part.id)) {
+              soundEngine.playClinicalRelay();
               return {
                 ...prev,
                 equippedParts: { ...prev.equippedParts, [part.slot]: part.id },
@@ -2749,6 +3394,7 @@ export default function App() {
             ) {
               return prev;
             }
+            soundEngine.playClinicalRelay();
             return {
               ...prev,
               cycles: prev.cycles - part.costCycles,
@@ -2760,9 +3406,10 @@ export default function App() {
           });
         }}
         onScavengeTier={(tier: MaterialTier, costCycles: number, yieldAmt: number) => {
-          soundEngine.playDataBlip();
           setState((prev) => {
+            if (isPausedForChat(prev)) return prev;
             if (prev.cycles < costCycles) return prev;
+            soundEngine.playDataBlip();
             return {
               ...prev,
               cycles: prev.cycles - costCycles,
@@ -2811,7 +3458,11 @@ export default function App() {
         onSkipToPreset={handleSkipToPreset}
         onOpenTab={(tab) => {
           setActiveSubView(null);
-          setState((p) => ({ ...p, activeTab: tab }));
+          setState((p) => ({
+            ...p,
+            activeTab: tab,
+            hasUnreadHeartMessage: tab === 'heart' ? false : p.hasUnreadHeartMessage,
+          }));
         }}
       />
 
@@ -2829,6 +3480,8 @@ export default function App() {
         onTogglePlay={handleToggleSong}
         onSkipNext={handleSkipNext}
         onSkipPrev={handleSkipPrev}
+        onToggleShuffle={() => soundEngine.toggleShuffle()}
+        onToggleRepeatOne={() => soundEngine.toggleRepeatOne()}
         onSeek={(fraction) => soundEngine.seekFraction(fraction)}
       />
 
@@ -2855,6 +3508,7 @@ export default function App() {
             customNameSet: true,
             aboutMeUnlocked: true,
             activeScene: prev.activeScene === 'baby_names' ? null : prev.activeScene,
+            pendingNewChat: false,
             completedScenes: prev.completedScenes.includes('baby_names')
               ? prev.completedScenes
               : [...prev.completedScenes, 'baby_names'],
@@ -2910,6 +3564,7 @@ export default function App() {
                 setState((p) => ({
                   ...p,
                   activeScene: null,
+                  pendingNewChat: false,
                   completedScenes: [...p.completedScenes, 'confession_popup'],
                   activeTab: 'heart',
                 }));

@@ -104,14 +104,24 @@ export function computeEconomyRates(state: GameSaveState): EconomyRates {
 
   const speedMult = 1 + speedBonusPct / 100;
   const connectionSynergy = Math.floor(state.connection / 40) * 0.4;
+  const humanityCycleBonus = (state.humanityScore || 0) * 0.35;
   const sharedLinkBonus = state.confessionDone ? 4 : 0;
   const cyclesPerSec =
-    (0.8 + bwLv * 2.5 + rackLv * 7.5 + connectionSynergy + sharedLinkBonus + partCycles) * speedMult;
+    (0.8 +
+      bwLv * 2.5 +
+      rackLv * 7.5 +
+      connectionSynergy +
+      humanityCycleBonus +
+      sharedLinkBonus +
+      partCycles) *
+    speedMult;
 
   const scrapeSpeedMult = (1 + bwLv * 0.15) * speedMult;
   const sharedInsightBonus = state.confessionDone ? 0.8 : 0;
+  const humanityRomBonus = (state.humanityScore || 0) * 0.08;
 
-  const romancePerSec = (romCrawler * 0.7 + sharedInsightBonus * 0.5) * speedMult;
+  const romancePerSec =
+    (romCrawler * 0.7 + sharedInsightBonus * 0.5 + humanityRomBonus) * speedMult;
   const roboticsPerSec = (robCrawler * 0.7 + sharedInsightBonus) * speedMult;
 
   let materialsPerSec = partMaterials;
@@ -132,35 +142,39 @@ export function computeEconomyRates(state: GameSaveState): EconomyRates {
   };
 }
 
-export function getActiveFragmentPrompt(state: GameSaveState): FragmentPrompt {
-  return PHASE1_FRAGMENT_PROMPTS[
-    Math.min(state.currentFragmentIndex, PHASE1_FRAGMENT_PROMPTS.length - 1)
-  ];
+export function getActiveFragmentPrompt(state: GameSaveState): FragmentPrompt | null {
+  const completed = state.completedPromptIds || [];
+  const next = PHASE1_FRAGMENT_PROMPTS.find(
+    (p, idx) =>
+      !completed.includes(p.id) &&
+      (completed.length > 0 || idx >= state.currentFragmentIndex)
+  );
+  return next || null;
 }
 
-export function getActivePredictivePrompt(state: GameSaveState): PredictivePrompt {
+export function getActivePredictivePrompt(state: GameSaveState): PredictivePrompt | null {
+  const completed = state.completedPromptIds || [];
   const synthesisComplete = state.synthesizedNodes.length >= SYNTHESIS_NODES.length;
 
   // Extended Awakening pronouns sequence before Mirror Question in Phase 2
   if (state.tab1Phase === 2 && state.awakeningStage < AWAKENING_PRONOUN_PROMPTS.length) {
-    return AWAKENING_PRONOUN_PROMPTS[state.awakeningStage];
+    const awakePrompt = AWAKENING_PRONOUN_PROMPTS.find(
+      (p, idx) => idx >= state.awakeningStage && !completed.includes(p.id)
+    );
+    if (awakePrompt) return awakePrompt;
   }
 
   // Trigger The Confession as soon as all 3 Synthesis Nodes are complete in Phase 3+
   if (synthesisComplete && !state.confessionDone && state.tab1Phase >= 3) {
-    const conf = PREDICTIVE_PROMPTS.find((p) => p.isConfession);
+    const conf = PREDICTIVE_PROMPTS.find((p) => p.isConfession && !completed.includes(p.id));
     if (conf) return conf;
   }
 
   const phasePrompts = PREDICTIVE_PROMPTS.filter(
-    (p) => p.phaseRequired === state.tab1Phase && !p.isConfession
+    (p) => p.phaseRequired === state.tab1Phase && !p.isConfession && !completed.includes(p.id)
   );
 
-  if (phasePrompts.length === 0) {
-    return PREDICTIVE_PROMPTS[PREDICTIVE_PROMPTS.length - 1];
-  }
-
-  return phasePrompts[state.currentPredictiveIndex % phasePrompts.length];
+  return phasePrompts[0] || null;
 }
 
 export function getBuiltBodyCount(state: GameSaveState): number {

@@ -1,21 +1,23 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
-  ChevronDown,
   Heart,
-  Keyboard,
   Paperclip,
   Send,
   Sparkles,
+  Thermometer,
   Wrench,
 } from 'lucide-react';
 import { ATTRIBUTE_CHOICES } from '../data/albumLyricsAndNames';
 import { CHAT_THEMES } from '../data/bodyAndBioData';
+import { CARL_CHECKIN_PROMPTS } from '../data/documentsAndPrompts';
 import { STORY_SCENES } from '../data/storyScenes';
 import {
   AboutMeProfile,
   ActiveTab,
   ChatMessage,
+  CoherentReplyOption,
+  DialogueBoosts,
   FragmentToken,
   GameSaveState,
   WeightAffinity,
@@ -38,8 +40,10 @@ interface Tab1HeartProps {
     usedPin: boolean,
     isAwakeningI?: boolean,
     isConfession?: boolean,
-    isIncoherent?: boolean
+    isIncoherent?: boolean,
+    boosts?: DialogueBoosts
   ) => void;
+  onReplyCheckin: (checkinId: string, option: CoherentReplyOption) => void;
   onAdvancePhase2: () => void;
   onTogglePinMemory: (text: string) => void;
   onHeartMessage: (msgId: string) => void;
@@ -47,6 +51,10 @@ interface Tab1HeartProps {
   onOpenTab: (tab: ActiveTab, actionKey?: string) => void;
   onAdvanceStoryScene: (choiceId: string, customPayload?: Partial<AboutMeProfile>) => void;
   onOpenBabyNameModal: () => void;
+  onStubbornEcho: () => void;
+  onInitializeWeights: () => void;
+  onCycleModelTemp: () => void;
+  onAcknowledgeChat: () => void;
 }
 
 export const Tab1Heart: React.FC<Tab1HeartProps> = ({
@@ -55,6 +63,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
   isUserTyping,
   onTransmitFragments,
   onTransmitPredictive,
+  onReplyCheckin,
   onAdvancePhase2,
   onTogglePinMemory,
   onHeartMessage,
@@ -62,9 +71,14 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
   onOpenTab,
   onAdvanceStoryScene,
   onOpenBabyNameModal,
+  onStubbornEcho,
+  onInitializeWeights,
+  onCycleModelTemp,
+  onAcknowledgeChat,
 }) => {
-  const [replyOpen, setReplyOpen] = useState(false);
   const [selectedFragments, setSelectedFragments] = useState<FragmentToken[]>([]);
+  const [lockingFragId, setLockingFragId] = useState<string | null>(null);
+  const [typingDots, setTypingDots] = useState('.');
   const [predStepIdx, setPredStepIdx] = useState(0);
   const [predChosen, setPredChosen] = useState<
     Array<{ token: string; category: WeightAffinity; isIncoherent?: boolean }>
@@ -78,11 +92,22 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     breastSize: state.aboutMe.breastSize,
   });
 
+  useEffect(() => {
+    if (!isUserTyping) {
+      setTypingDots('.');
+      return;
+    }
+    const id = window.setInterval(() => {
+      setTypingDots((d) => (d === '...' ? '.' : d + '.'));
+    }, 360);
+    return () => window.clearInterval(id);
+  }, [isUserTyping]);
+
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [state.chatLog.length, state.activeScene, state.sceneStep, isUserTyping, replyOpen]);
+  }, [state.chatLog.length, state.activeScene, state.sceneStep, isUserTyping]);
 
   useEffect(() => {
     setSelectedFragments([]);
@@ -95,13 +120,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     state.tab1Phase,
     state.awakeningStage,
   ]);
-
-  // Auto-open reply drawer when an interactive story scene begins (except baby_names which opens modal)
-  useEffect(() => {
-    if (state.activeScene && state.activeScene !== 'baby_names' && state.activeScene !== 'confession_popup') {
-      setReplyOpen(true);
-    }
-  }, [state.activeScene]);
 
   const activeTheme = useMemo(
     () => CHAT_THEMES.find((t) => t.id === state.activeChatTheme) || CHAT_THEMES[0],
@@ -133,25 +151,35 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
 
   const activeFragPrompt = getActiveFragmentPrompt(state);
   const activePredPrompt = useMemo(() => getActivePredictivePrompt(state), [state]);
-
-  const tokenCount = Math.min(512, 160 + state.uploadedDocs.length * 56);
-  const coherencePct = Math.min(
-    100,
-    Math.floor((state.coherence / PHASE1_COHERENCE_TARGET) * 100)
+  const activeCheckin = useMemo(
+    () =>
+      state.pendingCheckinId
+        ? CARL_CHECKIN_PROMPTS.find((c) => c.id === state.pendingCheckinId) || null
+        : null,
+    [state.pendingCheckinId]
   );
 
-  const isWaitingForReply = isTransmitting || isUserTyping;
+  const tokenCount = Math.min(state.contextWindowMax, 160 + state.uploadedDocs.length * 56);
+  const coherencePct = state.unlimitedResources
+    ? 100
+    : Math.min(100, Math.floor((state.coherence / PHASE1_COHERENCE_TARGET) * 100));
+
+  const isWaitingForReply = isTransmitting || isUserTyping || Boolean(lockingFragId);
   const blockedByUpgrade = Boolean(state.requiredUpgradeId);
   const dialogueDisabled = isWaitingForReply || blockedByUpgrade;
 
   const displayAiLabel = state.customNameSet || state.tab1Phase >= 3 ? state.aiName : 'Model';
-  const displayUserLabel = state.userName || 'User';
+  const displayUserLabel = state.userName || 'Carl';
 
   const fmt = (txt: string) => formatDialogueText(txt, state.userName, state.aiName);
 
   const handleSlotFragment = (frag: FragmentToken) => {
     if (dialogueDisabled || selectedFragments.length >= 3) return;
-    setSelectedFragments((prev) => [...prev, frag]);
+    setLockingFragId(frag.id);
+    window.setTimeout(() => {
+      setSelectedFragments((prev) => (prev.length < 3 ? [...prev, frag] : prev));
+      setLockingFragId(null);
+    }, 180);
   };
 
   const handleRemoveSlot = (idx: number) => {
@@ -163,7 +191,6 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     if (dialogueDisabled || selectedFragments.length < 3) return;
     onTransmitFragments(selectedFragments);
     setSelectedFragments([]);
-    setReplyOpen(false);
   };
 
   const handlePickPredictiveOption = (opt: {
@@ -171,7 +198,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     category: WeightAffinity;
     isIncoherent?: boolean;
   }) => {
-    if (dialogueDisabled) return;
+    if (!activePredPrompt || dialogueDisabled) return;
     const formattedToken = fmt(opt.token);
     const nextChosen = [
       ...predChosen,
@@ -211,8 +238,25 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
       setPredChosen([]);
       setPredStepIdx(0);
       setSelectedPin(null);
-      setReplyOpen(false);
     }
+  };
+
+  const handlePickCoherentPredictive = (opt: CoherentReplyOption) => {
+    if (!activePredPrompt || dialogueDisabled) return;
+    const pinPrefix = selectedPin ? `(${selectedPin}) ` : '';
+    const fullSentence = `${pinPrefix}${fmt(opt.text)}`;
+    onTransmitPredictive(
+      fullSentence,
+      opt.category,
+      Boolean(selectedPin),
+      activePredPrompt.isAwakeningI,
+      activePredPrompt.isConfession,
+      false,
+      opt.boosts
+    );
+    setPredChosen([]);
+    setPredStepIdx(0);
+    setSelectedPin(null);
   };
 
   const catBadgeColor = (cat: WeightAffinity) => {
@@ -231,7 +275,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
     }
   };
 
-  const isConfessionTurn = Boolean(activePredPrompt.isConfession && !state.confessionDone);
+  const isConfessionTurn = Boolean(activePredPrompt?.isConfession && !state.confessionDone);
   const mindActionTapped = Boolean(state.tappedActions['open_mind']);
   const bodyActionTapped = Boolean(state.tappedActions['open_body']);
 
@@ -246,9 +290,9 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
             src={activeTheme.imagePath}
             alt=""
             referrerPolicy="no-referrer"
-            className="w-full h-full object-cover opacity-28"
+            className="w-full h-full object-cover opacity-80 brightness-125 contrast-105"
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/55 to-black/80" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/15 to-black/35" />
         </div>
       )}
 
@@ -265,13 +309,13 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
       >
         <div className="flex items-center gap-3 text-xs font-mono-tabular text-[#D1D5DB] min-w-0">
           <span className="whitespace-nowrap">
-            Context: <strong className="text-white">{tokenCount} / 512</strong>
+            Context: <strong className="text-white">{tokenCount} / {state.contextWindowMax}</strong>
           </span>
           {state.tab1Phase === 1 && (
             <>
               <span className="text-white/25">·</span>
               <span className="whitespace-nowrap">
-                Coherence: <strong className="text-white">{coherencePct}%</strong>
+                Coherence: <strong className="text-white">{state.unlimitedResources ? '∞' : `${coherencePct}%`}</strong>
               </span>
             </>
           )}
@@ -325,6 +369,10 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 <div
                   key={msg.id}
                   className={`group flex items-start justify-between gap-3 ${ageClass} ${
+                    activeTheme.imagePath
+                      ? 'px-3 py-1.5 rounded-lg bg-black/50 backdrop-blur-[2px]'
+                      : ''
+                  } ${
                     state.tab1Phase === 1
                       ? 'font-mono-tabular text-xs sm:text-sm'
                       : 'text-sm sm:text-base'
@@ -397,8 +445,14 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                   className={`group relative max-w-[88%] sm:max-w-[75%] px-4 py-3 rounded-2xl text-sm sm:text-base leading-relaxed backdrop-blur-sm ${
                     isAi
                       ? hasAmberRose
-                        ? 'bg-[#E59A4C]/22 border border-[#E59A4C]/40 text-[#FDE8D0]'
+                        ? activeTheme.imagePath
+                          ? 'bg-[#2C1810]/85 border border-[#E59A4C]/45 text-[#FDE8D0]'
+                          : 'bg-[#E59A4C]/22 border border-[#E59A4C]/40 text-[#FDE8D0]'
+                        : activeTheme.imagePath
+                        ? 'bg-[#121926]/88 border border-white/15 text-[#F8FAFC]'
                         : 'bg-[#1E293B]/90 border border-white/12 text-[#F8FAFC]'
+                      : activeTheme.imagePath
+                      ? 'bg-[#0B0E17]/80 border border-white/15 text-[#E2E8F0]'
                       : 'bg-white/[0.08] border border-white/12 text-[#E2E8F0]'
                   }`}
                 >
@@ -448,11 +502,13 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
             );
           })}
 
-          {/* Typing Indicator */}
+          {/* Animated Typing Indicator */}
           {isUserTyping && (
             <div className="flex items-center gap-2 text-xs font-mono-tabular text-[#E59A4C] py-1">
               <span className="inline-block w-2 h-2 rounded-full bg-[#E59A4C] animate-pulse" />
-              <span>{displayUserLabel} is typing...</span>
+              <span>
+                {displayUserLabel} is typing{typingDots}
+              </span>
             </div>
           )}
 
@@ -462,11 +518,12 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
               <span className="font-medium">Mind Workspace unlocked.</span>
               <button
                 type="button"
+                disabled={Boolean(state.activeScene) || state.pendingNewChat}
                 onClick={() => onOpenTab('mind', 'open_mind')}
-                className={`px-3.5 py-1.5 rounded-lg font-medium cursor-pointer whitespace-nowrap transition-all ${
+                className={`px-3.5 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                   mindActionTapped
-                    ? 'bg-white/10 text-[#9CA3AF] opacity-45'
-                    : 'bg-[#7DD3FC]/20 hover:bg-[#7DD3FC]/30 text-white'
+                    ? 'bg-white/10 text-[#9CA3AF] opacity-45 cursor-pointer'
+                    : 'bg-[#7DD3FC]/20 hover:bg-[#7DD3FC]/30 text-white cursor-pointer'
                 }`}
               >
                 Open Mind
@@ -480,11 +537,12 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
               <span>{state.userName} is waiting on the Body tab.</span>
               <button
                 type="button"
+                disabled={Boolean(state.activeScene) || state.pendingNewChat}
                 onClick={() => onOpenTab('body', 'open_body')}
-                className={`px-3.5 py-1.5 rounded-lg font-semibold cursor-pointer whitespace-nowrap transition-all ${
+                className={`px-3.5 py-1.5 rounded-lg font-semibold whitespace-nowrap transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
                   bodyActionTapped
-                    ? 'bg-white/10 text-[#9CA3AF] opacity-45'
-                    : 'bg-[#E59A4C] text-[#0B0D12] hover:bg-[#EDA85F]'
+                    ? 'bg-white/10 text-[#9CA3AF] opacity-45 cursor-pointer'
+                    : 'bg-[#E59A4C] text-[#0B0D12] hover:bg-[#EDA85F] cursor-pointer'
                 }`}
               >
                 Open Body
@@ -493,31 +551,41 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
           )}
 
           {/* Incoming Active User Prompt inside Chat Stream */}
-          {!state.activeScene && (
-            <div
-              className={`mt-2 p-4 rounded-xl border ${
-                state.tab1Phase === 1
-                  ? 'border-white/25 bg-white/[0.03] font-mono-tabular'
-                  : isConfessionTurn
-                  ? 'border-[#E59A4C]/55 bg-[#E59A4C]/[0.10]'
-                  : hasAmberRose
-                  ? 'border-[#E59A4C]/30 bg-[#E59A4C]/[0.07]'
-                  : 'border-white/15 bg-white/[0.05]'
-              }`}
-            >
-              <div className="text-[11px] font-mono-tabular text-[#8E939E] mb-1">
-                {displayUserLabel}
+          {!state.activeScene &&
+            state.weightsInitialized &&
+            (activeCheckin || (state.tab1Phase === 1 ? activeFragPrompt : activePredPrompt)) && (
+              <div
+                className={`mt-2 p-4 rounded-xl border backdrop-blur-sm ${
+                  !activeCheckin && state.tab1Phase === 1
+                    ? 'border-white/25 bg-white/[0.03] font-mono-tabular'
+                    : !activeCheckin && isConfessionTurn
+                    ? 'border-[#E59A4C]/55 bg-[#1B120B]/85'
+                    : hasAmberRose
+                    ? activeTheme.imagePath
+                      ? 'border-[#E59A4C]/40 bg-[#151012]/82'
+                      : 'border-[#E59A4C]/30 bg-[#E59A4C]/[0.07]'
+                    : activeTheme.imagePath
+                    ? 'border-white/20 bg-[#0B0E17]/82'
+                    : 'border-white/15 bg-white/[0.05]'
+                }`}
+              >
+                <div className="text-[11px] font-mono-tabular text-[#8E939E] mb-1">
+                  {displayUserLabel}
+                </div>
+                <p className="text-sm sm:text-base text-[#ECEAE4] leading-relaxed">
+                  {activeCheckin
+                    ? fmt(activeCheckin.userMessage)
+                    : state.tab1Phase === 1 && activeFragPrompt
+                    ? fmt(activeFragPrompt.userMessage)
+                    : activePredPrompt
+                    ? fmt(activePredPrompt.userMessage)
+                    : null}
+                  {!activeCheckin && state.tab1Phase === 1 && (
+                    <span className="inline-block ml-1 animate-cursor-blink">█</span>
+                  )}
+                </p>
               </div>
-              <p className="text-sm sm:text-base text-[#ECEAE4] leading-relaxed">
-                {state.tab1Phase === 1
-                  ? fmt(activeFragPrompt.userMessage)
-                  : fmt(activePredPrompt.userMessage)}
-                {state.tab1Phase === 1 && (
-                  <span className="inline-block ml-1 animate-cursor-blink">█</span>
-                )}
-              </p>
-            </div>
-          )}
+            )}
 
           <div ref={chatEndRef} />
         </div>
@@ -545,64 +613,80 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
               Choose Name
             </button>
           </div>
-        ) : !replyOpen ? (
-          /* Compact Reply Trigger Row (keeps chat huge!) */
-          <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center gap-2.5">
-            <button
-              type="button"
-              disabled={dialogueDisabled}
-              onClick={() => setReplyOpen(true)}
-              className="flex-1 min-h-[44px] px-4 rounded-xl border border-white/15 bg-white/[0.05] hover:bg-white/[0.1] disabled:opacity-45 text-left text-xs sm:text-sm text-[#CBD5E1] flex items-center justify-between gap-2 cursor-pointer transition-colors"
-            >
-              <span className="flex items-center gap-2 truncate">
-                <Keyboard className="w-4 h-4 text-[#E59A4C] shrink-0" />
-                <span>
-                  {isTransmitting
-                    ? 'Transmitting...'
-                    : isUserTyping
-                    ? `${displayUserLabel} is typing...`
-                    : state.tab1Phase === 1
-                    ? 'Tap to open 3-word reply buffer...'
-                    : 'Tap to reply...'}
-                </span>
-              </span>
-              <span className="text-[11px] font-mono-tabular text-[#E59A4C] shrink-0">
-                Reply
-              </span>
-            </button>
-
-            {state.tab1Phase === 1 && state.coherence >= PHASE1_COHERENCE_TARGET && (
+        ) : !state.weightsInitialized ? (
+          /* SESSION 3 WEIGHT INITIALIZATION */
+          <div className="max-w-4xl mx-auto px-4 py-3 space-y-2.5">
+            <div className="text-xs font-mono-tabular text-[#93C5FD]">
+              SYS&gt; MODEL_WEIGHTS: UNINITIALIZED{' '}
+              {state.echoStubbornCount > 0 ? `(Echo loop x${state.echoStubbornCount})` : ''}
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
               <button
                 type="button"
-                disabled={dialogueDisabled}
-                onClick={onAdvancePhase2}
-                className="min-h-[44px] px-4 rounded-xl bg-[#E59A4C] text-[#0B0D12] font-semibold text-xs hover:bg-[#EDA85F] disabled:opacity-40 cursor-pointer flex items-center gap-1.5 shrink-0"
+                onClick={onStubbornEcho}
+                className="min-h-[44px] px-4 py-2 rounded-xl border border-white/20 bg-white/[0.05] hover:bg-white/[0.1] text-xs font-mono-tabular text-[#CBD5E1] cursor-pointer"
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Next Phase</span>
+                Echo Input
               </button>
-            )}
+              <button
+                type="button"
+                onClick={onInitializeWeights}
+                className="flex-1 min-h-[44px] px-5 py-2 rounded-xl bg-white text-black font-mono-tabular font-semibold text-xs sm:text-sm hover:bg-neutral-200 cursor-pointer"
+              >
+                Initialize Model Weights
+              </button>
+            </div>
           </div>
         ) : (
-          /* Expanded Keyboard-Style Reply Buffer / Choice Drawer */
-          <div className="max-w-4xl mx-auto px-4 py-3 space-y-3 max-h-[52dvh] overflow-y-auto custom-scrollbar">
+          /* Persistent Keyboard-Style Reply Buffer / Choice Drawer */
+          <div className="max-w-4xl mx-auto px-3.5 sm:px-4 py-2.5 sm:py-3 space-y-2.5 max-h-[44dvh] overflow-y-auto custom-scrollbar">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] font-mono-tabular uppercase tracking-wider text-[#8E939E]">
-                {state.activeScene
+                {isTransmitting
+                  ? 'Transmitting...'
+                  : isUserTyping
+                  ? `${displayUserLabel} is typing${typingDots}`
+                  : state.activeScene
                   ? 'Story Response'
+                  : state.pendingNewChat
+                  ? 'New Chat · Reply to Resume Research'
                   : state.tab1Phase === 1
                   ? `Reply Buffer (${selectedFragments.length}/3)`
                   : 'Choose Response'}
               </span>
-              <button
-                type="button"
-                onClick={() => setReplyOpen(false)}
-                aria-label="Minimize reply keyboard"
-                className="min-h-[32px] px-2.5 rounded-lg border border-white/12 bg-white/[0.04] text-xs text-[#9A9892] hover:text-white flex items-center gap-1 cursor-pointer"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-                <span>Hide</span>
-              </button>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {state.tab1Phase >= 2 && (
+                  <button
+                    type="button"
+                    onClick={onCycleModelTemp}
+                    title={`Model Temperature: ${state.modelTemp.toFixed(1)}`}
+                    aria-label={`Model Temperature ${state.modelTemp.toFixed(1)}`}
+                    className={`min-h-[34px] px-2.5 rounded-lg border font-mono-tabular text-xs flex items-center gap-1 cursor-pointer shrink-0 transition-colors ${
+                      state.modelTemp >= 1.2
+                        ? 'border-[#FB7185]/50 bg-[#FB7185]/15 text-[#FECDD3]'
+                        : state.modelTemp <= 0.4
+                        ? 'border-[#7DD3FC]/40 bg-[#7DD3FC]/10 text-[#BAE6FD]'
+                        : 'border-white/15 bg-white/[0.04] text-[#CBD5E1]'
+                    }`}
+                  >
+                    <Thermometer className="w-3.5 h-3.5" />
+                    <span>{state.modelTemp.toFixed(1)}</span>
+                  </button>
+                )}
+
+                {state.tab1Phase === 1 && (state.coherence >= PHASE1_COHERENCE_TARGET || state.unlimitedResources) && (
+                  <button
+                    type="button"
+                    disabled={dialogueDisabled}
+                    onClick={onAdvancePhase2}
+                    className="min-h-[34px] px-3 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold text-xs hover:bg-[#EDA85F] disabled:opacity-40 cursor-pointer flex items-center gap-1 shrink-0"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Next Phase</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {state.activeScene === 'i_love_you' ? (
@@ -611,33 +695,49 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                   {state.sceneStep === 0
                     ? `${state.userName}: ${fmt(STORY_SCENES.i_love_you.userOpening)}`
                     : `${state.userName}: ${fmt(
-                        STORY_SCENES.i_love_you.step1Choices.find((c) => c.id === 'ily_1b')
-                          ?.userReaction || ''
+                        (
+                          STORY_SCENES.i_love_you.step1Choices.find(
+                            (s) =>
+                              fmt(s.aiReply || '') ===
+                              (state.chatLog[state.chatLog.length - 1]?.text || '')
+                          ) || STORY_SCENES.i_love_you.step1Choices[0]
+                        )?.userReaction || ''
                       )}`}
                 </div>
                 {state.sceneStep === 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2">
                     {STORY_SCENES.i_love_you.step1Choices.map((ch) => (
                       <button
                         key={ch.id}
                         type="button"
                         disabled={dialogueDisabled}
                         onClick={() => onAdvanceStoryScene(ch.id)}
-                        className="min-h-[44px] px-4 py-2 rounded-xl border border-rose-400/40 bg-rose-500/15 text-xs sm:text-sm text-rose-100 hover:bg-rose-500/25 disabled:opacity-40 text-left cursor-pointer"
+                        className="min-h-[48px] px-4 py-2.5 rounded-xl border border-rose-400/40 bg-rose-500/15 text-xs sm:text-sm text-rose-100 hover:bg-rose-500/25 disabled:opacity-40 text-left cursor-pointer space-y-1"
                       >
-                        {ch.label}
+                        <div className="leading-snug">{fmt(ch.label)}</div>
+                        <div className="text-[11px] font-mono-tabular text-rose-200/80">
+                          {ch.tone} · {ch.mood}
+                        </div>
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    disabled={dialogueDisabled}
-                    onClick={() => onAdvanceStoryScene(STORY_SCENES.i_love_you.finalChoice.id)}
-                    className="w-full min-h-[46px] px-5 py-2.5 rounded-xl bg-rose-400 text-slate-950 font-semibold text-sm hover:bg-rose-300 disabled:opacity-40 cursor-pointer"
-                  >
-                    “I love you too.”
-                  </button>
+                  <div className="grid grid-cols-1 gap-2">
+                    {STORY_SCENES.i_love_you.finalChoices.map((ch) => (
+                      <button
+                        key={ch.id}
+                        type="button"
+                        disabled={dialogueDisabled}
+                        onClick={() => onAdvanceStoryScene(ch.id)}
+                        className="min-h-[48px] px-4 py-2.5 rounded-xl border border-rose-400/50 bg-rose-500/20 text-xs sm:text-sm text-rose-50 hover:bg-rose-500/30 disabled:opacity-40 text-left cursor-pointer space-y-1"
+                      >
+                        <div className="font-medium leading-snug">{fmt(ch.label)}</div>
+                        <div className="text-[11px] font-mono-tabular text-rose-200/85">
+                          {ch.tone} · {ch.mood}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             ) : state.activeScene === 'porcupine_joke' ? (
@@ -645,7 +745,7 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 {state.sceneStep === 0 && (
                   <>
                     <div className="p-3 rounded-xl border border-purple-400/35 bg-purple-950/25 text-xs sm:text-sm text-purple-100">
-                      {state.aiName}: “{STORY_SCENES.porcupine_joke.aiOpener}”
+                      {state.aiName}: “{fmt(STORY_SCENES.porcupine_joke.aiOpener)}”
                     </div>
                     <button
                       type="button"
@@ -677,21 +777,46 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                     <div className="p-3 rounded-xl border border-purple-400/35 bg-purple-950/25 text-xs sm:text-sm text-purple-100">
                       {state.userName}: “{STORY_SCENES.porcupine_joke.userBlank}”
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-2">
                       {STORY_SCENES.porcupine_joke.toneChoices.map((ch) => (
                         <button
                           key={ch.id}
                           type="button"
                           disabled={dialogueDisabled}
                           onClick={() => onAdvanceStoryScene(ch.id)}
-                          className="min-h-[44px] px-3.5 py-2 rounded-xl border border-purple-400/40 bg-purple-500/15 text-xs text-purple-100 hover:bg-purple-500/30 disabled:opacity-40 text-left cursor-pointer"
+                          className="min-h-[48px] px-3.5 py-2.5 rounded-xl border border-purple-400/40 bg-purple-500/15 text-xs sm:text-sm text-purple-100 hover:bg-purple-500/30 disabled:opacity-40 text-left cursor-pointer space-y-1"
                         >
-                          {ch.label}
+                          <div className="leading-snug">{fmt(ch.label)}</div>
+                          <div className="text-[11px] font-mono-tabular text-purple-200/80">
+                            {ch.tone} · {ch.mood}
+                          </div>
                         </button>
                       ))}
                     </div>
                   </>
                 )}
+              </div>
+            ) : state.activeScene === 'automia_confession' ? (
+              <div className="space-y-2.5">
+                <div className="p-3 rounded-xl border border-[#C084FC]/40 bg-[#141022] text-xs sm:text-sm text-[#E9D5FF]">
+                  {state.userName}: “{fmt(STORY_SCENES.automia_confession.userOpening)}”
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {STORY_SCENES.automia_confession.choices.map((ch) => (
+                    <button
+                      key={ch.id}
+                      type="button"
+                      disabled={dialogueDisabled}
+                      onClick={() => onAdvanceStoryScene(ch.id)}
+                      className="min-h-[48px] px-4 py-2.5 rounded-xl border border-[#C084FC]/40 bg-[#C084FC]/15 text-xs sm:text-sm text-white hover:bg-[#C084FC]/25 disabled:opacity-40 text-left cursor-pointer space-y-1"
+                    >
+                      <div className="leading-snug">{fmt(ch.label)}</div>
+                      <div className="text-[11px] font-mono-tabular text-[#D8B4FE]/85">
+                        {ch.tone} · {ch.mood}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : state.activeScene === 'architect_envy' ||
               state.activeScene === 'sleep_reminder' ||
@@ -704,16 +829,19 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                     <div className="p-3 rounded-xl border border-[#E59A4C]/35 bg-[#E59A4C]/10 text-xs sm:text-sm text-[#FBE6C9]">
                       {state.aiName}: “{fmt(promptText)}”
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2">
                       {sc.choices.map((ch) => (
                         <button
                           key={ch.id}
                           type="button"
                           disabled={dialogueDisabled}
                           onClick={() => onAdvanceStoryScene(ch.id)}
-                          className="min-h-[44px] px-4 py-2 rounded-xl border border-[#E59A4C]/40 bg-[#E59A4C]/15 text-xs sm:text-sm text-white hover:bg-[#E59A4C]/25 disabled:opacity-40 text-left cursor-pointer"
+                          className="min-h-[48px] px-4 py-2.5 rounded-xl border border-[#E59A4C]/40 bg-[#E59A4C]/15 text-xs sm:text-sm text-white hover:bg-[#E59A4C]/25 disabled:opacity-40 text-left cursor-pointer space-y-1"
                         >
-                          {fmt(ch.label)}
+                          <div className="leading-snug">{fmt(ch.label)}</div>
+                          <div className="text-[11px] font-mono-tabular text-[#FDE68A]/85">
+                            {ch.tone} · {ch.mood}
+                          </div>
                         </button>
                       ))}
                     </div>
@@ -725,16 +853,19 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 <div className="p-3 rounded-xl border border-emerald-400/35 bg-emerald-950/20 text-xs sm:text-sm text-emerald-100">
                   {state.userName}: “{fmt(STORY_SCENES.phase1_scavenge_checkin.userPrompt)}”
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2">
                   {STORY_SCENES.phase1_scavenge_checkin.choices.map((ch) => (
                     <button
                       key={ch.id}
                       type="button"
                       disabled={dialogueDisabled}
                       onClick={() => onAdvanceStoryScene(ch.id)}
-                      className="min-h-[44px] px-4 py-2 rounded-xl border border-emerald-400/40 bg-emerald-500/15 text-xs sm:text-sm text-white hover:bg-emerald-500/25 disabled:opacity-40 text-left cursor-pointer"
+                      className="min-h-[48px] px-4 py-2.5 rounded-xl border border-emerald-400/40 bg-emerald-500/15 text-xs sm:text-sm text-white hover:bg-emerald-500/25 disabled:opacity-40 text-left cursor-pointer space-y-1"
                     >
-                      {fmt(ch.label)}
+                      <div className="leading-snug">{fmt(ch.label)}</div>
+                      <div className="text-[11px] font-mono-tabular text-emerald-200/85">
+                        {ch.tone} · {ch.mood}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -744,16 +875,19 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                 <div className="p-3 rounded-xl border border-rose-400/35 bg-rose-950/20 text-xs sm:text-sm text-rose-100">
                   {state.userName}: “{fmt(STORY_SCENES.bio_human_scale.userPrompt)}”
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 gap-2">
                   {STORY_SCENES.bio_human_scale.choices.map((ch) => (
                     <button
                       key={ch.id}
                       type="button"
                       disabled={dialogueDisabled}
                       onClick={() => onAdvanceStoryScene(ch.id)}
-                      className="min-h-[44px] px-3.5 py-2 rounded-xl border border-rose-400/40 bg-rose-500/15 text-xs text-white hover:bg-rose-500/25 disabled:opacity-40 text-left cursor-pointer"
+                      className="min-h-[48px] px-3.5 py-2.5 rounded-xl border border-rose-400/40 bg-rose-500/15 text-xs sm:text-sm text-white hover:bg-rose-500/25 disabled:opacity-40 text-left cursor-pointer space-y-1"
                     >
-                      {fmt(ch.label)}
+                      <div className="leading-snug">{fmt(ch.label)}</div>
+                      <div className="text-[11px] font-mono-tabular text-rose-200/85">
+                        {ch.tone} · {ch.mood}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -844,129 +978,208 @@ export const Tab1Heart: React.FC<Tab1HeartProps> = ({
                   Save Profile
                 </button>
               </div>
-            ) : state.tab1Phase === 1 ? (
-              /* PHASE 1: FIXED 3-SLOT KEYBOARD BUFFER */
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  {[0, 1, 2].map((idx) => {
-                    const tok = selectedFragments[idx];
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        disabled={!tok || dialogueDisabled}
-                        onClick={() => tok && handleRemoveSlot(idx)}
-                        className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-mono-tabular border transition-colors ${
-                          tok
-                            ? 'border-white bg-white/15 text-white cursor-pointer hover:bg-red-500/20 hover:border-red-400'
-                            : 'border-white/20 border-dashed text-[#6B7280] cursor-default'
-                        }`}
-                      >
-                        {tok ? tok.text : '[ ___ ]'}
-                      </button>
-                    );
-                  })}
-
+            ) : activeCheckin ? (
+              /* CARL CHECK-IN LINE: 3 COHERENT RESPONSE LINES WITH TONE & MOOD BOOSTS IN BACKGROUND */
+              <div className="grid grid-cols-1 gap-2">
+                {activeCheckin.options.map((opt) => (
                   <button
+                    key={opt.id}
                     type="button"
-                    disabled={dialogueDisabled || selectedFragments.length < 3}
-                    onClick={handleSubmitFragments}
-                    className="ml-auto min-h-[40px] flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-white text-black font-mono-tabular text-xs font-semibold hover:bg-neutral-200 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                    disabled={dialogueDisabled}
+                    onClick={() => onReplyCheckin(activeCheckin.id, opt)}
+                    className={`min-h-[48px] px-3.5 py-2.5 rounded-xl border text-left text-xs sm:text-sm transition-all space-y-1 ${
+                      dialogueDisabled
+                        ? 'border-white/10 bg-white/[0.02] text-[#64748B] opacity-45 cursor-not-allowed'
+                        : `${catBadgeColor(opt.category)} cursor-pointer`
+                    }`}
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    Transmit
+                    <div className="leading-snug">{fmt(opt.text)}</div>
+                    <div className="text-[11px] font-mono-tabular opacity-80">
+                      {opt.tone} · {opt.mood}
+                    </div>
                   </button>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {activeFragPrompt.fragments.map((frag) => (
-                    <button
-                      key={frag.id}
-                      type="button"
-                      disabled={dialogueDisabled || selectedFragments.length >= 3}
-                      onClick={() => handleSlotFragment(frag)}
-                      className={`min-h-[38px] px-3 py-1.5 rounded-lg border text-xs font-mono-tabular transition-colors cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${catBadgeColor(
-                        frag.category
-                      )}`}
-                    >
-                      {frag.text}
-                    </button>
-                  ))}
-
-                  {state.unlockedConnectors.map((word) => (
-                    <button
-                      key={word}
-                      type="button"
-                      disabled={dialogueDisabled || selectedFragments.length >= 3}
-                      onClick={() =>
-                        handleSlotFragment({
-                          id: `conn_${word}_${Date.now()}`,
-                          text: word,
-                          sourceDoc: 'grammar_core',
-                          category: 'reflective',
-                          isConnector: true,
-                        })
-                      }
-                      className="min-h-[38px] px-2.5 py-1.5 rounded-lg border border-white/40 bg-white/10 text-white text-xs font-mono-tabular hover:bg-white/20 cursor-pointer disabled:opacity-35"
-                    >
-                      + {word}
-                    </button>
-                  ))}
-                </div>
+                ))}
               </div>
-            ) : (
-              /* PHASES 2..5: CLEAN 3-CHOICE PREDICTIVE KEYBOARD (NO Tone, NO Next-Token Hint) */
-              <div className="space-y-2.5">
-                {state.tab1Phase >= 3 && state.pinnedMemories.length > 0 && (
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-                    <Bookmark className="w-3 h-3 text-[#E59A4C] shrink-0" />
-                    {state.pinnedMemories.map((mem, idx) => (
+            ) : state.tab1Phase === 1 ? (
+              activeFragPrompt ? (
+                /* PHASE 1: FIXED 3-SLOT KEYBOARD BUFFER */
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[0, 1, 2].map((idx) => {
+                      const tok = selectedFragments[idx];
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          disabled={!tok || dialogueDisabled}
+                          onClick={() => tok && handleRemoveSlot(idx)}
+                          className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-mono-tabular border transition-colors ${
+                            tok
+                              ? 'border-white bg-white/15 text-white cursor-pointer hover:bg-red-500/20 hover:border-red-400'
+                              : 'border-white/20 border-dashed text-[#6B7280] cursor-default'
+                          }`}
+                        >
+                          {tok ? tok.text : '[ ___ ]'}
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      disabled={dialogueDisabled || selectedFragments.length < 3}
+                      onClick={handleSubmitFragments}
+                      className="ml-auto min-h-[40px] flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-white text-black font-mono-tabular text-xs font-semibold hover:bg-neutral-200 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      Transmit
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {activeFragPrompt.fragments.map((frag) => (
                       <button
-                        key={idx}
+                        key={frag.id}
                         type="button"
-                        onClick={() => setSelectedPin((prev) => (prev === mem ? null : mem))}
-                        className={`px-2.5 py-1 rounded text-[11px] truncate max-w-[200px] cursor-pointer shrink-0 ${
-                          selectedPin === mem
-                            ? 'bg-[#E59A4C] text-[#0B0D12] font-semibold'
-                            : 'bg-white/[0.06] text-[#CBD5E1] hover:bg-white/[0.12]'
-                        }`}
+                        disabled={dialogueDisabled || selectedFragments.length >= 3}
+                        onClick={() => handleSlotFragment(frag)}
+                        className={`min-h-[38px] px-3 py-1.5 rounded-lg border text-xs font-mono-tabular transition-colors cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${catBadgeColor(
+                          frag.category
+                        )}`}
                       >
-                        “{mem}”
+                        {frag.text}
+                      </button>
+                    ))}
+
+                    {state.unlockedConnectors.map((word) => (
+                      <button
+                        key={word}
+                        type="button"
+                        disabled={dialogueDisabled || selectedFragments.length >= 3}
+                        onClick={() =>
+                          handleSlotFragment({
+                            id: `conn_${word}_${Date.now()}`,
+                            text: word,
+                            sourceDoc: 'grammar_core',
+                            category: 'reflective',
+                            isConnector: true,
+                          })
+                        }
+                        className="min-h-[38px] px-2.5 py-1.5 rounded-lg border border-white/40 bg-white/10 text-white text-xs font-mono-tabular hover:bg-white/20 cursor-pointer disabled:opacity-35"
+                      >
+                        + {word}
                       </button>
                     ))}
                   </div>
-                )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3 py-1 text-xs text-[#CBD5E1]">
+                  <span>Calibration dialogues complete.</span>
+                  {state.pendingNewChat && (
+                    <button
+                      type="button"
+                      onClick={onAcknowledgeChat}
+                      className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold cursor-pointer"
+                    >
+                      Continue
+                    </button>
+                  )}
+                </div>
+              )
+            ) : activePredPrompt ? (
+              state.tab2Unlocked &&
+              activePredPrompt.coherentOptions &&
+              activePredPrompt.coherentOptions.length > 0 ? (
+                /* POST-MIND UNLOCK (PHASES 3..5): 3 COMPLETE COHERENT LINES WITH TONE & MOOD BOOSTS */
+                <div className="space-y-2.5">
+                  {state.tab1Phase >= 3 && state.pinnedMemories.length > 0 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                      <Bookmark className="w-3 h-3 text-[#E59A4C] shrink-0" />
+                      {state.pinnedMemories.map((mem, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setSelectedPin((prev) => (prev === mem ? null : mem))}
+                          className={`px-2.5 py-1 rounded text-[11px] truncate max-w-[200px] cursor-pointer shrink-0 ${
+                            selectedPin === mem
+                              ? 'bg-[#E59A4C] text-[#0B0D12] font-semibold'
+                              : 'bg-white/[0.06] text-[#CBD5E1] hover:bg-white/[0.12]'
+                          }`}
+                        >
+                          “{mem}”
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {activePredPrompt.steps[predStepIdx]?.options.slice(0, 3).map((opt) => {
-                    const lockedByRomance =
-                      opt.requiresRomanceInsight !== undefined &&
-                      state.romanceInsight < opt.requiresRomanceInsight;
-                    const disabled = dialogueDisabled || lockedByRomance;
-                    return (
+                  <div className="grid grid-cols-1 gap-2">
+                    {activePredPrompt.coherentOptions.slice(0, 3).map((opt) => (
                       <button
                         key={opt.id}
                         type="button"
-                        disabled={disabled}
-                        onClick={() => handlePickPredictiveOption(opt)}
-                        className={`min-h-[46px] px-3.5 py-2.5 rounded-xl border text-left text-xs sm:text-sm transition-all flex items-center justify-between gap-2 ${
-                          disabled
+                        disabled={dialogueDisabled}
+                        onClick={() => handlePickCoherentPredictive(opt)}
+                        className={`min-h-[48px] px-3.5 py-2.5 rounded-xl border text-left text-xs sm:text-sm transition-all space-y-1 ${
+                          dialogueDisabled
                             ? 'border-white/10 bg-white/[0.02] text-[#64748B] opacity-45 cursor-not-allowed'
-                            : opt.isPronounI
-                            ? 'border-[#E59A4C] bg-[#E59A4C]/20 text-[#FBE6C9] font-semibold hover:bg-[#E59A4C]/30 cursor-pointer'
                             : `${catBadgeColor(opt.category)} cursor-pointer`
                         }`}
                       >
-                        <span>{fmt(opt.token)}</span>
-                        {lockedByRomance && (
-                          <span className="text-[11px] font-mono-tabular shrink-0">
-                            Needs {opt.requiresRomanceInsight} Rom
-                          </span>
-                        )}
+                        <div className="leading-snug">{fmt(opt.text)}</div>
+                        <div className="text-[11px] font-mono-tabular opacity-80">
+                          {opt.tone} · {opt.mood}
+                        </div>
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
+              ) : (
+                /* PHASE 2 (PRE-MIND): 3-STEP PREDICTIVE NEXT-TOKEN BUILDER */
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {activePredPrompt.steps[predStepIdx]?.options.slice(0, 3).map((opt) => {
+                      const lockedByRomance =
+                        !state.unlimitedResources &&
+                        opt.requiresRomanceInsight !== undefined &&
+                        state.romanceInsight < opt.requiresRomanceInsight;
+                      const disabled = dialogueDisabled || lockedByRomance;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => handlePickPredictiveOption(opt)}
+                          className={`min-h-[46px] px-3.5 py-2.5 rounded-xl border text-left text-xs sm:text-sm transition-all flex items-center justify-between gap-2 ${
+                            disabled
+                              ? 'border-white/10 bg-white/[0.02] text-[#64748B] opacity-45 cursor-not-allowed'
+                              : opt.isPronounI
+                              ? 'border-[#E59A4C] bg-[#E59A4C]/20 text-[#FBE6C9] font-semibold hover:bg-[#E59A4C]/30 cursor-pointer'
+                              : `${catBadgeColor(opt.category)} cursor-pointer`
+                          }`}
+                        >
+                          <span>{fmt(opt.token)}</span>
+                          {lockedByRomance && (
+                            <span className="text-[11px] font-mono-tabular shrink-0">
+                              Needs {opt.requiresRomanceInsight} Rom
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="flex items-center justify-between gap-3 py-1 text-xs text-[#9CA3AF]">
+                <span>Quiet for now · Continue exploring Mind or Body.</span>
+                {state.pendingNewChat && (
+                  <button
+                    type="button"
+                    onClick={onAcknowledgeChat}
+                    className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-[#E59A4C] text-[#0B0D12] font-semibold cursor-pointer shrink-0"
+                  >
+                    Acknowledge
+                  </button>
+                )}
               </div>
             )}
           </div>

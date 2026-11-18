@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   Cpu,
   Heart,
-  Lock,
+  MessageSquare,
   Pickaxe,
+  Terminal,
   Wrench,
   X,
 } from 'lucide-react';
@@ -23,13 +24,15 @@ import {
   MindUpgrade,
   PartSlotId,
 } from '../types/game';
-import { formatNumber } from '../utils/format';
+import { formatNumber, formatResource } from '../utils/format';
 import { getMindUpgradeCost, PHASE1_CONNECTORS } from '../utils/progression';
 
 export type UpgradeTabKey = 'heart' | 'mind' | 'body';
 
 interface BottomUpgradesBarProps {
   state: GameSaveState;
+  pausedByChat: boolean;
+  onGoToChat: () => void;
   onBuyConnector: (word: string, cost: number) => void;
   onBuyUiUpgrade: (id: string, cost: number) => void;
   onSelectChatTheme: (themeId: ChatThemeId, cost: number) => void;
@@ -50,6 +53,8 @@ const SLOT_LABELS: Record<PartSlotId, string> = {
 
 export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
   state,
+  pausedByChat,
+  onGoToChat,
   onBuyConnector,
   onBuyUiUpgrade,
   onSelectChatTheme,
@@ -61,6 +66,18 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
 }) => {
   const [openMenu, setOpenMenu] = useState<UpgradeTabKey | null>(null);
   const [bodySection, setBodySection] = useState<'parts' | 'materials' | 'tests'>('parts');
+
+  useEffect(() => {
+    if (pausedByChat) setOpenMenu(null);
+  }, [pausedByChat]);
+
+  const activeMenu: UpgradeTabKey | null = pausedByChat
+    ? null
+    : openMenu === 'mind' && !state.tab2Unlocked
+    ? null
+    : openMenu === 'body' && !state.tab3Unlocked
+    ? null
+    : openMenu;
 
   const req = state.requiredUpgradeId;
 
@@ -93,13 +110,19 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
   const heartHasNotification = useMemo(() => {
     if (req && (req.startsWith('conn_') || req.startsWith('ui_'))) return true;
     if (state.hasUnseenUpgrades && !req?.startsWith('mind_')) return true;
-    const canConn = unownedConnectors.some((c) => state.cycles >= c.costCycles);
-    const canUi = unownedUiUpgrades.some((u) => state.connection >= u.costConnection);
+    const canConn = unownedConnectors.some(
+      (c) => state.unlimitedResources || state.cycles >= c.costCycles
+    );
+    const canUi = unownedUiUpgrades.some(
+      (u) => state.unlimitedResources || state.connection >= u.costConnection
+    );
     const canTheme = availableThemes.some(
-      (t) => !state.unlockedChatThemes.includes(t.id) && state.connection >= t.costConnection
+      (t) =>
+        !state.unlockedChatThemes.includes(t.id) &&
+        (state.unlimitedResources || state.connection >= t.costConnection)
     );
     return canConn || canUi || canTheme;
-  }, [req, state.hasUnseenUpgrades, state.cycles, state.connection, state.unlockedChatThemes, unownedConnectors, unownedUiUpgrades, availableThemes]);
+  }, [req, state.hasUnseenUpgrades, state.unlimitedResources, state.cycles, state.connection, state.unlockedChatThemes, unownedConnectors, unownedUiUpgrades, availableThemes]);
 
   // Mind available items (hide maxed one-time upgrades)
   const visibleMindUpgrades = useMemo(
@@ -117,9 +140,9 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
     if (req && req.startsWith('mind_')) return true;
     return visibleMindUpgrades.some((u) => {
       const lv = state.mindUpgrades[u.id] || 0;
-      return state.cycles >= getMindUpgradeCost(u, lv);
+      return state.unlimitedResources || state.cycles >= getMindUpgradeCost(u, lv);
     });
-  }, [req, visibleMindUpgrades, state.mindUpgrades, state.cycles]);
+  }, [req, visibleMindUpgrades, state.mindUpgrades, state.unlimitedResources, state.cycles]);
 
   // Body available items (hide unequipped owned? Hide already owned non-equipped or keep equip clean; hide completed tests!)
   const unownedParts = useMemo(
@@ -151,15 +174,17 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
     const canPart = CUSTOM_PARTS.some(
       (p) =>
         !state.ownedParts.includes(p.id) &&
-        state.cycles >= p.costCycles &&
-        state.roboticsInsight >= p.costRobotics &&
-        (state.tierMaterials[p.tier] || 0) >= p.costMaterials
+        (state.unlimitedResources ||
+          (state.cycles >= p.costCycles &&
+            state.roboticsInsight >= p.costRobotics &&
+            (state.tierMaterials[p.tier] || 0) >= p.costMaterials))
     );
-    const canTest = bodyTests.some((t) => state.cycles >= t.cost);
+    const canTest = bodyTests.some((t) => state.unlimitedResources || state.cycles >= t.cost);
     return canPart || canTest;
-  }, [state.tab3Unlocked, state.ownedParts, state.cycles, state.roboticsInsight, state.tierMaterials, bodyTests]);
+  }, [state.tab3Unlocked, state.ownedParts, state.unlimitedResources, state.cycles, state.roboticsInsight, state.tierMaterials, bodyTests]);
 
   const toggleMenu = (tab: UpgradeTabKey) => {
+    if (pausedByChat) return;
     setOpenMenu((prev) => {
       const next = prev === tab ? null : tab;
       if (next) onMarkUpgradesSeen();
@@ -170,7 +195,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
   return (
     <div className="relative z-30 shrink-0">
       {/* Collapsible Popup Drawer */}
-      {openMenu && (
+      {activeMenu && (
         <>
           <div
             className="fixed inset-0 z-30 bg-black/55 backdrop-blur-[1px]"
@@ -180,24 +205,34 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
           <div
             className="absolute bottom-full left-0 right-0 z-40 mx-auto max-w-4xl px-2 sm:px-4 pb-2"
             role="dialog"
-            aria-label={`${openMenu} upgrades`}
+            aria-label={`${activeMenu} upgrades`}
           >
             <div className="rounded-2xl border border-white/15 bg-[#0C1018]/98 shadow-2xl overflow-hidden flex flex-col max-h-[62dvh]">
               {/* Drawer Header */}
               <div className="shrink-0 px-4 py-3 border-b border-white/10 bg-white/[0.03] flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 text-sm font-semibold text-white capitalize">
                   <Wrench className="w-4 h-4 text-[#E59A4C]" />
-                  <span>{openMenu} Upgrades</span>
+                  <span>
+                    {activeMenu === 'heart' && state.tab1Phase < 3
+                      ? 'Terminal Upgrades'
+                      : `${activeMenu} Upgrades`}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-mono-tabular text-[#8E939E]">
-                    {openMenu === 'heart' &&
-                      `${formatNumber(state.cycles)} Cyc${
-                        state.tab1Phase >= 2 ? ` · ${formatNumber(state.connection)} Conn` : ''
+                    {activeMenu === 'heart' &&
+                      `${formatResource(state.cycles, state.unlimitedResources)} Cyc${
+                        state.tab1Phase >= 2
+                          ? ` · ${formatResource(state.connection, state.unlimitedResources)} Conn`
+                          : ''
                       }`}
-                    {openMenu === 'mind' && `${formatNumber(state.cycles)} Cyc`}
-                    {openMenu === 'body' &&
-                      `${formatNumber(state.cycles)} Cyc · ${formatNumber(state.materials)} Mat`}
+                    {activeMenu === 'mind' &&
+                      `${formatResource(state.cycles, state.unlimitedResources)} Cyc`}
+                    {activeMenu === 'body' &&
+                      `${formatResource(state.cycles, state.unlimitedResources)} Cyc · ${formatResource(
+                        state.materials,
+                        state.unlimitedResources
+                      )} Mat`}
                   </span>
                   <button
                     type="button"
@@ -212,7 +247,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
 
               {/* Drawer Body */}
               <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 space-y-4">
-                {openMenu === 'heart' && (
+                {activeMenu === 'heart' && (
                   <div className="space-y-4">
                     {unownedConnectors.length > 0 && (
                       <div className="space-y-2">
@@ -221,7 +256,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                           {unownedConnectors.map((conn) => {
-                            const canBuy = state.cycles >= conn.costCycles;
+                            const canBuy = state.unlimitedResources || state.cycles >= conn.costCycles;
                             const isReq = req === `conn_${conn.word}`;
                             return (
                               <button
@@ -265,7 +300,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                           {unownedUiUpgrades.map((u) => {
-                            const canBuy = state.connection >= u.costConnection;
+                            const canBuy = state.unlimitedResources || state.connection >= u.costConnection;
                             const isReq = req === u.id;
                             return (
                               <button
@@ -311,7 +346,9 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                           {availableThemes.map((t) => {
                             const unlocked = state.unlockedChatThemes.includes(t.id);
                             const active = state.activeChatTheme === t.id;
-                            const canBuy = !unlocked && state.connection >= t.costConnection;
+                            const canBuy =
+                              !unlocked &&
+                              (state.unlimitedResources || state.connection >= t.costConnection);
                             return (
                               <button
                                 key={t.id}
@@ -347,7 +384,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                   </div>
                 )}
 
-                {openMenu === 'mind' && (
+                {activeMenu === 'mind' && (
                   <div className="space-y-3">
                     {visibleMindUpgrades.length === 0 ? (
                       <div className="py-6 text-center text-xs text-[#8E939E]">
@@ -358,7 +395,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                         {visibleMindUpgrades.map((u) => {
                           const lv = state.mindUpgrades[u.id] || 0;
                           const cost = getMindUpgradeCost(u, lv);
-                          const canBuy = state.cycles >= cost;
+                          const canBuy = state.unlimitedResources || state.cycles >= cost;
                           const isReq = req === u.id;
                           return (
                             <button
@@ -393,7 +430,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                   </div>
                 )}
 
-                {openMenu === 'body' && (
+                {activeMenu === 'body' && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 border-b border-white/10 pb-2">
                       {(
@@ -425,9 +462,10 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                           const equipped = state.equippedParts[part.slot] === part.id;
                           const curTierAmt = state.tierMaterials[part.tier] || 0;
                           const canBuy =
-                            state.cycles >= part.costCycles &&
-                            state.roboticsInsight >= part.costRobotics &&
-                            curTierAmt >= part.costMaterials;
+                            state.unlimitedResources ||
+                            (state.cycles >= part.costCycles &&
+                              state.roboticsInsight >= part.costRobotics &&
+                              curTierAmt >= part.costMaterials);
                           return (
                             <div
                               key={part.id}
@@ -480,7 +518,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                             </div>
                             <button
                               type="button"
-                              disabled={state.cycles < g.scavengeCostCycles}
+                              disabled={!state.unlimitedResources && state.cycles < g.scavengeCostCycles}
                               onClick={() =>
                                 onScavengeTier(g.tier, g.scavengeCostCycles, g.yieldAmount)
                               }
@@ -514,7 +552,7 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
                               </div>
                               <button
                                 type="button"
-                                disabled={state.cycles < t.cost}
+                                disabled={!state.unlimitedResources && state.cycles < t.cost}
                                 onClick={() => onRunSimulation(t.id, t.cost)}
                                 className="min-h-[38px] px-3.5 py-1.5 rounded-lg bg-sky-400 text-slate-950 text-xs font-semibold hover:bg-sky-300 disabled:opacity-35 cursor-pointer shrink-0"
                               >
@@ -533,21 +571,46 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
         </>
       )}
 
-      {/* Persistent Bottom Wrench Upgrades Row */}
+      {pausedByChat && (
+        <div className="px-3 sm:px-5 py-1.5 border-t border-[#E59A4C]/30 bg-[#1B1316] flex items-center justify-between gap-2 text-[11px] text-[#FBE6C9]">
+          <span className="flex items-center gap-1.5 truncate">
+            <MessageSquare className="w-3.5 h-3.5 text-[#E59A4C] shrink-0" />
+            <span className="truncate">
+              Upgrades &amp; research paused — new chat waiting in {state.tab1Phase >= 3 ? 'Heart' : 'Terminal'}.
+            </span>
+          </span>
+          {state.activeTab !== 'heart' && (
+            <button
+              type="button"
+              onClick={onGoToChat}
+              className="px-2.5 py-0.5 rounded bg-[#E59A4C] text-[#0B0D12] font-semibold cursor-pointer shrink-0"
+            >
+              Open Chat
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Persistent Bottom Row with Wrench Upgrades (hidden per tab until top tab unlocks) */}
       <div className="h-13 px-3 sm:px-5 border-t border-white/12 bg-[#07090D] flex items-center justify-center gap-2 sm:gap-3">
         <button
           type="button"
+          disabled={pausedByChat}
           onClick={() => toggleMenu('heart')}
-          className={`relative min-h-[40px] flex-1 max-w-[180px] px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-            openMenu === 'heart'
-              ? 'border-[#E59A4C] bg-[#E59A4C]/18 text-[#FBE6C9]'
-              : 'border-white/12 bg-white/[0.04] text-[#D6D3CD] hover:bg-white/[0.09]'
+          className={`relative min-h-[40px] flex-1 max-w-[180px] px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+            activeMenu === 'heart'
+              ? 'border-[#E59A4C] bg-[#E59A4C]/18 text-[#FBE6C9] cursor-pointer'
+              : 'border-white/12 bg-white/[0.04] text-[#D6D3CD] hover:bg-white/[0.09] cursor-pointer'
           }`}
         >
           <Wrench className="w-3.5 h-3.5 text-[#E59A4C]" />
-          <Heart className="w-3.5 h-3.5 text-[#FB7185]" />
-          <span>Heart</span>
-          {heartHasNotification && (
+          {state.tab1Phase >= 3 ? (
+            <Heart className="w-3.5 h-3.5 text-[#FB7185]" />
+          ) : (
+            <Terminal className="w-3.5 h-3.5 text-[#7DD3FC]" />
+          )}
+          <span>{state.tab1Phase >= 3 ? 'Heart' : 'Terminal'}</span>
+          {!pausedByChat && heartHasNotification && (
             <span
               aria-label="Heart upgrade available"
               className="w-2 h-2 rounded-full bg-[#E59A4C] ring-2 ring-[#07090D]"
@@ -555,57 +618,49 @@ export const BottomUpgradesBar: React.FC<BottomUpgradesBarProps> = ({
           )}
         </button>
 
-        {state.tab2Unlocked ? (
+        {state.tab2Unlocked && (
           <button
             type="button"
+            disabled={pausedByChat}
             onClick={() => toggleMenu('mind')}
-            className={`relative min-h-[40px] flex-1 max-w-[180px] px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-              openMenu === 'mind'
-                ? 'border-[#38BDF8] bg-[#38BDF8]/18 text-[#BAE6FD]'
-                : 'border-white/12 bg-white/[0.04] text-[#D6D3CD] hover:bg-white/[0.09]'
+            className={`relative min-h-[40px] flex-1 max-w-[180px] px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              activeMenu === 'mind'
+                ? 'border-[#38BDF8] bg-[#38BDF8]/18 text-[#BAE6FD] cursor-pointer'
+                : 'border-white/12 bg-white/[0.04] text-[#D6D3CD] hover:bg-white/[0.09] cursor-pointer'
             }`}
           >
             <Wrench className="w-3.5 h-3.5 text-[#38BDF8]" />
             <Cpu className="w-3.5 h-3.5 text-[#38BDF8]" />
             <span>Mind</span>
-            {mindHasNotification && (
+            {!pausedByChat && mindHasNotification && (
               <span
                 aria-label="Mind upgrade available"
                 className="w-2 h-2 rounded-full bg-[#38BDF8] ring-2 ring-[#07090D]"
               />
             )}
           </button>
-        ) : (
-          <div className="min-h-[40px] flex-1 max-w-[180px] px-3 rounded-xl border border-white/8 bg-white/[0.015] text-xs text-[#6B7280] flex items-center justify-center gap-1.5">
-            <Lock className="w-3 h-3" />
-            <span>Mind</span>
-          </div>
         )}
 
-        {state.tab3Unlocked ? (
+        {state.tab3Unlocked && (
           <button
             type="button"
+            disabled={pausedByChat}
             onClick={() => toggleMenu('body')}
-            className={`relative min-h-[40px] flex-1 max-w-[180px] px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors ${
-              openMenu === 'body'
-                ? 'border-emerald-400 bg-emerald-400/18 text-emerald-200'
-                : 'border-white/12 bg-white/[0.04] text-[#D6D3CD] hover:bg-white/[0.09]'
+            className={`relative min-h-[40px] flex-1 max-w-[180px] px-3 rounded-xl border text-xs font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              activeMenu === 'body'
+                ? 'border-emerald-400 bg-emerald-400/18 text-emerald-200 cursor-pointer'
+                : 'border-white/12 bg-white/[0.04] text-[#D6D3CD] hover:bg-white/[0.09] cursor-pointer'
             }`}
           >
             <Wrench className="w-3.5 h-3.5 text-emerald-400" />
             <span>Body</span>
-            {bodyHasNotification && (
+            {!pausedByChat && bodyHasNotification && (
               <span
                 aria-label="Body upgrade available"
                 className="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#07090D]"
               />
             )}
           </button>
-        ) : (
-          <div className="min-h-[40px] flex-1 max-w-[180px] px-3 rounded-xl border border-white/8 bg-white/[0.015] text-xs text-[#6B7280] flex items-center justify-center gap-1.5">
-            <Lock className="w-3 h-3" />
-            <span>Body</span>
-          </div>
         )}
       </div>
     </div>
